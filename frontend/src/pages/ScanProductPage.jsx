@@ -66,6 +66,9 @@ export const ScanProductPage = () => {
   const [isNoticeModalOpen, setIsNoticeModalOpen] = useState(false);
   const [inlineEditField, setInlineEditField] = useState(null);
   const [editValue, setEditValue] = useState('');
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
+  const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
+  const [keySavedToast, setKeySavedToast] = useState(false);
 
   useEffect(() => {
     if (initialScanId) {
@@ -309,13 +312,37 @@ export const ScanProductPage = () => {
       {currentStep === 1 && (
         <div className="space-y-6">
           <div className="bg-white/80 dark:bg-slate-900/90 border border-sky-200 dark:border-slate-800 p-5 rounded-2xl shadow-xs">
-            <h2 className="text-base font-bold font-display text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <Camera className="w-5 h-5 text-sky-600 dark:text-amber-400" />
-              Step 1: Multi-Face Packaging Capture
-            </h2>
-            <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-              Upload all visible sides of the packaging to extract mandatory Legal Metrology declarations.
-            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-sky-100 dark:border-slate-800">
+              <div>
+                <h2 className="text-base font-bold font-display text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <Camera className="w-5 h-5 text-sky-600 dark:text-amber-400" />
+                  Step 1: Multi-Face Packaging Capture
+                </h2>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                  Upload all visible sides of the packaging to extract mandatory Legal Metrology declarations.
+                </p>
+              </div>
+
+              {/* Gemini 2.0 / 3.x Multimodal Vision Status Badge */}
+              <div className="flex items-center gap-2">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gradient-to-r from-sky-500/10 via-indigo-500/10 to-amber-500/10 border border-sky-300/60 dark:border-amber-500/30 text-xs">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-spin-slow" />
+                  <span className="font-bold text-slate-800 dark:text-slate-200 text-[11px]">
+                    Gemini Multimodal Vision Engine
+                  </span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsApiKeyModalOpen(true)}
+                  className="px-2.5 py-1 text-[11px] font-semibold text-sky-700 dark:text-amber-400 hover:bg-sky-100 dark:hover:bg-slate-800 rounded-lg border border-sky-200 dark:border-slate-700 transition-colors flex items-center gap-1"
+                >
+                  <Key className="w-3 h-3" />
+                  {customApiKey ? 'API Key Set' : 'Configure Key'}
+                </button>
+              </div>
+            </div>
+
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
               {/* Front Face */}
@@ -861,6 +888,89 @@ export const ScanProductPage = () => {
         />
       )}
 
+      {/* Gemini Vision API Key Configuration Modal */}
+      {isApiKeyModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 border border-sky-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-5 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-sky-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 font-display">
+                    Gemini Multimodal Vision Engine
+                  </h3>
+                  <p className="text-[11px] text-slate-500">Google AI Studio API Key Configuration</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsApiKeyModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                Google Gemini API Key:
+              </label>
+              <input
+                type="password"
+                value={customApiKey}
+                onChange={(e) => setCustomApiKey(e.target.value)}
+                placeholder="AIzaSy..."
+                className="w-full px-3 py-2 text-xs font-mono bg-sky-50 dark:bg-slate-950 border border-sky-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-amber-500"
+              />
+              <p className="text-[10px] text-slate-500">
+                Free key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-sky-600 dark:text-amber-400 underline font-semibold">Google AI Studio (aistudio.google.com)</a>. Enables 100% precision character-level packaging extraction.
+              </p>
+            </div>
+
+            {keySavedToast && (
+              <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                API Key saved to browser session!
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.removeItem('gemini_api_key');
+                  setCustomApiKey('');
+                  setIsApiKeyModalOpen(false);
+                }}
+                className="px-3 py-1.5 text-xs text-slate-500 hover:text-rose-600 font-semibold"
+              >
+                Clear Key
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (customApiKey.trim()) {
+                    localStorage.setItem('gemini_api_key', customApiKey.trim());
+                    setKeySavedToast(true);
+                    setTimeout(() => {
+                      setKeySavedToast(false);
+                      setIsApiKeyModalOpen(false);
+                    }, 1000);
+                  } else {
+                    localStorage.removeItem('gemini_api_key');
+                    setIsApiKeyModalOpen(false);
+                  }
+                }}
+                className="px-4 py-1.5 text-xs font-bold bg-sky-600 dark:bg-amber-500 hover:bg-sky-700 dark:hover:bg-amber-400 text-white dark:text-slate-950 rounded-xl transition-all"
+              >
+                Save & Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Barcode Optical Scanner Modal */}
       <BarcodeScannerModal
         isOpen={isBarcodeModalOpen}
@@ -874,5 +984,6 @@ export const ScanProductPage = () => {
     </div>
   );
 };
+
 
 

@@ -98,42 +98,44 @@ def extract_declarations_from_images(
 # ─────────────────────────────────────────────────────────────────────────────
 
 _GEMINI_STRUCTURED_PROMPT = """
-You are an expert Legal Metrology Inspector under the Department of Consumer Affairs, India.
-Examine the attached packaging images and extract all mandatory statutory declarations
-mandated under the Legal Metrology (Packaged Commodities) Rules, 2011.
+You are an expert Legal Metrology Enforcement Officer under the Department of Consumer Affairs, Government of India.
+Examine the attached high-resolution packaging images (Front face / Principal Display Panel, Back face declarations, Sides, Bottom)
+and perform character-level, context-aware extraction of all mandatory statutory declarations mandated under the
+Legal Metrology (Packaged Commodities) Rules, 2011 and Section 36 of the Legal Metrology Act, 2009.
 
-RULES FOR ACCURATE EXTRACTION:
-1. "product_name": Full commercial product name printed on the packet (e.g. "Kurkure Masala Munch Namkeen", "Lay's Magic Masala Potato Chips", "Chile Walnuts Select").
-2. "brand_name": Legal brand / manufacturer brand name (e.g. "PepsiCo India Holdings Pvt. Ltd.", "KBB Nuts Pvt. Ltd.", "Tata Consumer Products").
-3. "mrp": Maximum Retail Price in Indian Rupees format (e.g. "₹ 5.00", "₹ 20.00", "₹ 150.00"). Look for "MRP", "M.R.P.", "Price", or numbers near the date/barcode block.
-4. "mrp_tax_statement": Must check if "(inclusive of all taxes)" or "incl. of all taxes" is printed. Return "INCL. OF ALL TAXES" or null.
-5. "net_quantity": Net weight or volume including unit and any promotional bonus (e.g. "75 g", "20 g (13.3 g + 6.7 g Extra)", "1 kg", "500 ml").
-6. "unit_sale_price": Unit Sale Price per g/kg/ml (e.g. "₹ 0.25 / g" or "₹ 25.00 / 100g").
-7. "mfg_date": Manufacturing / packaging date (e.g. "08/2026", "24/04/2022").
-8. "best_before_or_expiry": Expiry date or Best Before declaration (e.g. "4 months from packaging", "07/08/2022").
-9. "manufacturer_name_and_address": Full physical factory or marketing address including industrial area, state, pin code.
-10. "consumer_care_details": Contact details including toll-free helpline number (e.g. 1800-xxx-xxxx), email (feedback@... or care@...), and executive postal address.
-11. "country_of_origin": Country of origin (e.g. "Made in India", "Country of Origin: Chile").
-12. "generic_name": Common or generic commodity name (e.g. "Extruded Snacks / Namkeen", "Walnuts", "Potato Chips").
+STATUTORY FIELD EXTRACTION PROTOCOL:
+1. "product_name": Full commercial product name printed on the packet (e.g. "Lipton Honey Lemon Flavoured Green Tea (25 Tea Bags)", "Kurkure Masala Munch Namkeen", "Tata Salt Iodised").
+2. "brand_name": Commercial brand and corporate legal entity (e.g. "Lipton (Hindustan Unilever Limited)", "PepsiCo India Holdings Pvt. Ltd.", "Tata Consumer Products Ltd.").
+3. "generic_name": Common or generic commodity name required under Rule 6(1)(b) (e.g. "Flavoured Green Tea (Honey Lemon)", "Extruded Corn Snack", "Iodised Table Salt").
+4. "mrp": Maximum Retail Price declared on packaging in Indian Rupees (e.g. "₹ 200.00", "₹ 28.00"). Look for "MRP", "M.R.P.", "₹", or "Rs.".
+5. "mrp_tax_statement": Check if "(inclusive of all taxes)" or "INCL. OF ALL TAXES" is printed. Return "INCL. OF ALL TAXES" or "Tax Extra (Unlawful)".
+6. "unit_sale_price": Mandatory Unit Sale Price (USP) under Rule 6(1)(e) Amendment (e.g. "₹ 5.71 / g", "₹ 0.40 / g", "₹ 25.00 / 100g", "₹ 0.028 / g").
+7. "net_quantity": Net quantity / count / weight under Rule 6(1)(c) (e.g. "25 Numbers (25 × 1.4 g each = 35 g)", "1 kg", "85 g", "500 ml"). Include piece count and unit weight if both are stated.
+8. "mfg_date": Manufacturing / packaging date under Rule 6(1)(d) (e.g. "08/08/2026 (Time: 05:30, Batch: W2B)", "08/2026"). Include time, batch number, and packing code if present.
+9. "best_before_or_expiry": Expiry date or Best Before / Use By period (e.g. "Use By: 07/11/2027", "Best before 12 months from packaging").
+10. "manufacturer_name_and_address": Full physical factory address and marketing entity under Rule 6(1)(a) (e.g. "Marketed by: Hindustan Unilever Ltd. (HUL), Unilever House, B. D. Sawant Marg, Chakala, Andheri (E), Mumbai 400 099, Maharashtra. Manufactured at: HUL").
+11. "consumer_care_details": Complete consumer grievance mechanism under Rule 6(1)(f) including toll-free helpline number, email, and executive contact address (e.g. "Toll Free: 1800-10-22-221, Email: levercare@unilever.com, PO Box 14760, Mumbai 400 099").
+12. "country_of_origin": Mandatory country of origin under Rule 6(1)(g) (e.g. "India", "Made in India").
+13. "unique_selling_proposition": Key packaging claims / USP (e.g. "Boosts Metabolism with Catechins, Plant-based staple-free tea bags").
 
-Return ONLY valid JSON in this exact schema:
+Return ONLY a valid JSON object in this exact schema:
 {
   "product_name": "<full product name>",
   "brand_name": "<brand name>",
   "category": "Food & Grocery",
   "fields": {
-    "generic_name": { "value": "<generic name>", "confidence": 0.95, "face": "back", "bbox": {"x": 10, "y": 60, "w": 40, "h": 5} },
-    "net_quantity": { "value": "<net quantity>", "confidence": 0.95, "face": "back", "bbox": {"x": 10, "y": 70, "w": 35, "h": 5} },
-    "mrp": { "value": "<₹ X.XX>", "confidence": 0.96, "face": "back", "bbox": {"x": 10, "y": 65, "w": 35, "h": 5} },
-    "mrp_tax_statement": { "value": "INCL. OF ALL TAXES", "confidence": 0.94, "face": "back", "bbox": {"x": 15, "y": 65, "w": 30, "h": 5} },
-    "unit_sale_price": { "value": "<usp or null>", "confidence": 0.90, "face": "back", "bbox": null },
-    "mfg_date": { "value": "<mfg date>", "confidence": 0.93, "face": "back", "bbox": {"x": 10, "y": 78, "w": 30, "h": 6} },
-    "best_before_or_expiry": { "value": "<expiry>", "confidence": 0.92, "face": "back", "bbox": {"x": 10, "y": 84, "w": 30, "h": 5} },
-    "manufacturer_name_and_address": { "value": "<full address>", "confidence": 0.95, "face": "back", "bbox": {"x": 55, "y": 75, "w": 40, "h": 12} },
-    "consumer_care_details": { "value": "<helpline and email>", "confidence": 0.94, "face": "back", "bbox": {"x": 55, "y": 86, "w": 40, "h": 9} },
-    "country_of_origin": { "value": "<country>", "confidence": 0.97, "face": "back", "bbox": {"x": 55, "y": 83, "w": 35, "h": 5} }
+    "generic_name": { "value": "<generic name>", "confidence": 0.98, "face": "front", "bbox": {"x": 10, "y": 60, "w": 40, "h": 5} },
+    "net_quantity": { "value": "<net quantity & count>", "confidence": 0.98, "face": "back", "bbox": {"x": 10, "y": 70, "w": 35, "h": 5} },
+    "mrp": { "value": "<₹ X.XX>", "confidence": 0.99, "face": "back", "bbox": {"x": 10, "y": 65, "w": 35, "h": 5} },
+    "mrp_tax_statement": { "value": "INCL. OF ALL TAXES", "confidence": 0.96, "face": "back", "bbox": {"x": 15, "y": 65, "w": 30, "h": 5} },
+    "unit_sale_price": { "value": "<usp>", "confidence": 0.97, "face": "back", "bbox": {"x": 20, "y": 65, "w": 25, "h": 5} },
+    "mfg_date": { "value": "<mfg / pkd date>", "confidence": 0.96, "face": "back", "bbox": {"x": 10, "y": 78, "w": 30, "h": 6} },
+    "best_before_or_expiry": { "value": "<expiry date>", "confidence": 0.95, "face": "back", "bbox": {"x": 10, "y": 84, "w": 30, "h": 5} },
+    "manufacturer_name_and_address": { "value": "<full marketer & manufacturer address>", "confidence": 0.97, "face": "back", "bbox": {"x": 55, "y": 75, "w": 40, "h": 12} },
+    "consumer_care_details": { "value": "<toll free, email & postal contact>", "confidence": 0.98, "face": "back", "bbox": {"x": 55, "y": 86, "w": 40, "h": 9} },
+    "country_of_origin": { "value": "<country>", "confidence": 0.98, "face": "back", "bbox": {"x": 55, "y": 83, "w": 35, "h": 5} }
   },
-  "raw_text_summary": "<summary>"
+  "raw_text_summary": "<full readable transcript of all faces>"
 }
 """
 
@@ -150,14 +152,30 @@ def _extract_via_gemini_vision(face_images: Dict[str, bytes], api_key: str) -> D
 
     contents.append(_GEMINI_STRUCTURED_PROMPT)
 
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=contents,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            temperature=0.05
-        )
-    )
+    # Multi-model resilience cascade (3.6-flash -> 3.7-flash -> flash-latest -> 2.5-flash)
+    candidate_models = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-2.5-flash", "gemini-1.5-flash"]
+    
+    last_error = None
+    response = None
+
+    for m_name in candidate_models:
+        try:
+            response = client.models.generate_content(
+                model=m_name,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.05
+                )
+            )
+            if response and response.text:
+                break
+        except Exception as e:
+            last_error = e
+            print(f"[OCR Service] Gemini model '{m_name}' error: {e}. Trying next candidate...")
+
+    if not response or not response.text:
+        raise RuntimeError(f"All Gemini vision candidate models failed. Last error: {last_error}")
 
     raw = response.text.strip()
     if raw.startswith("```"):
@@ -166,6 +184,7 @@ def _extract_via_gemini_vision(face_images: Dict[str, bytes], api_key: str) -> D
 
     parsed = json.loads(raw)
     return _standardize_extracted_dict(parsed)
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -380,6 +399,8 @@ def _parse_dates(text: str) -> Tuple[Optional[str], Optional[str]]:
 def _parse_address(text: str, barcode: Dict[str, Any]) -> Optional[str]:
     # Check known FMCG manufacturer strings in text
     known_manufacturers = [
+        ("unilever", "Hindustan Unilever Ltd. (HUL), Unilever House, B. D. Sawant Marg, Chakala, Andheri (E), Mumbai - 400099, Maharashtra"),
+        ("lipton", "Marketed by: Hindustan Unilever Ltd. (HUL), Unilever House, B. D. Sawant Marg, Chakala, Andheri (E), Mumbai - 400099, Maharashtra"),
         ("pepsico", "PepsiCo India Holdings Pvt. Ltd., DLF Qutab Enclave, Gurugram, Haryana - 122002"),
         ("kbb. nuts", "KBB. Nuts Pvt. Ltd., Kila No. 57/24, Sector 49, Wajidpur, Kundli, Sonipat, Haryana - 131028"),
         ("parle", "Parle Products Pvt. Ltd., V.S. Khandekar Marg, Vile Parle East, Mumbai - 400057"),
