@@ -1,4 +1,4 @@
-# METROLOGY-AI: Legal Metrology Compliance & Inspection Intelligence Platform
+# PackSureAI: Legal Metrology Compliance & Inspection Intelligence Platform
 
 [![Smart India Hackathon 2026](https://img.shields.io/badge/SIH-2026-blue.svg)](https://www.sih.gov.in)
 [![Problem Statement ID](https://img.shields.io/badge/PS%20ID-SIH26034-orange.svg)](https://www.sih.gov.in)
@@ -13,7 +13,7 @@
 
 ## 🌟 Executive Summary & Key Differentiators
 
-**METROLOGY-AI** is an enterprise AI-powered compliance, surveillance, and legal notice dispatch platform designed for **Legal Metrology Enforcement Officers**, **Legal Reviewers**, **Marketplace Regulators**, and **Indian Consumers**.
+**PackSureAI** is an enterprise AI-powered compliance, surveillance, and legal notice dispatch platform designed for **Legal Metrology Enforcement Officers**, **Legal Reviewers**, **Marketplace Regulators**, and **Indian Consumers**.
 
 ### 🚀 Core Enterprise Features:
 

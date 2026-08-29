@@ -189,7 +189,7 @@ export const LandingHomePage = () => {
           </div>
 
           <h1 className="text-3xl sm:text-5xl font-display font-extrabold tracking-tight text-slate-900 dark:text-slate-50 leading-tight">
-            METROLOGY-AI
+            PackSure<span className="text-sky-600 dark:text-amber-400">AI</span>
             <span className="block text-2xl sm:text-3xl font-semibold bg-gradient-to-r from-sky-600 via-indigo-600 to-amber-600 bg-clip-text text-transparent mt-1">
               Autonomous Packaging Compliance & Legal Metrology Enforcement Platform
             </span>
@@ -510,7 +510,7 @@ export const LandingHomePage = () => {
       <footer className="border-t border-sky-200 dark:border-slate-800 bg-white/60 dark:bg-slate-950/60 py-6 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <div className="font-semibold text-slate-700 dark:text-slate-300">
-            METROLOGY-AI • Smart India Hackathon 2026
+            PackSureAI • Smart India Hackathon 2026
           </div>
           <div>
             Ministry of Consumer Affairs, Food & Public Distribution • Legal Metrology Act, 2009

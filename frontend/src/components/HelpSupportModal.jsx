@@ -235,7 +235,7 @@ export const HelpSupportModal = () => {
 
         {/* Footer */}
         <div className="bg-sky-100/60 dark:bg-slate-950/80 px-6 py-3 border-t border-sky-200/80 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between">
-          <span>METROLOGY-AI Support Engine • Smart India Hackathon 2026</span>
+          <span>PackSureAI Support Engine • Smart India Hackathon 2026</span>
           <button
             onClick={() => setIsHelpModalOpen(false)}
             className="px-3 py-1 bg-sky-600 dark:bg-amber-500 text-white dark:text-slate-950 font-bold rounded-lg text-xs"

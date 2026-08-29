@@ -108,7 +108,7 @@ export const LoginModal = () => {
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-display font-extrabold text-base text-slate-900 dark:text-slate-100">
-                  METROLOGY-AI
+                  PackSure<span className="text-sky-600 dark:text-amber-400">AI</span>
                 </h3>
                 <span className="text-[10px] font-bold bg-sky-200 dark:bg-amber-500/10 text-sky-800 dark:text-amber-400 px-2 py-0.5 rounded-full border border-sky-300 dark:border-amber-500/20">
                   Select Role & Access

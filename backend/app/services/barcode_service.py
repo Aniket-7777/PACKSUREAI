@@ -115,7 +115,7 @@ def _lookup_open_food_facts(barcode: str) -> Dict[str, Any] | None:
     """
     url = f"https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
     try:
-        resp = httpx.get(url, timeout=6.0, headers={"User-Agent": "METROLOGY-AI/1.0"})
+        resp = httpx.get(url, timeout=6.0, headers={"User-Agent": "PackSureAI/1.0"})
         if resp.status_code != 200:
             return None
         data = resp.json()
@@ -223,7 +223,7 @@ def _lookup_upc_item_db(barcode: str) -> Dict[str, Any] | None:
     """
     url = f"https://api.upcitemdb.com/prod/trial/lookup?upc={barcode}"
     try:
-        resp = httpx.get(url, timeout=5.0, headers={"User-Agent": "METROLOGY-AI/1.0"})
+        resp = httpx.get(url, timeout=5.0, headers={"User-Agent": "PackSureAI/1.0"})
         if resp.status_code != 200:
             return None
         data = resp.json()

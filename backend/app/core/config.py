@@ -12,7 +12,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 class Settings:
-    PROJECT_NAME: str = "METROLOGY-AI"
+    PROJECT_NAME: str = "PackSureAI"
     PROJECT_VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
     

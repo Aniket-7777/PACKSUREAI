@@ -112,7 +112,7 @@ export const Navbar = () => {
 
         {/* Main Header Bar */}
         <div className="max-w-7xl mx-auto px-3 sm:px-6 h-14 flex items-center justify-between gap-2 sm:gap-4">
-          {/* Left: METROLOGY-AI Logo & Product Name */}
+          {/* Left: PackSureAI Logo & Product Name */}
           <div className="flex items-center gap-3 shrink-0">
             <Link to="/" className="flex items-center gap-2.5 group">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-600 via-indigo-600 to-amber-500 p-[2px] shadow-sm group-hover:scale-105 transition-transform">
@@ -123,7 +123,7 @@ export const Navbar = () => {
               <div className="flex flex-col">
                 <div className="flex items-center gap-1.5">
                   <span className="font-display font-black text-base tracking-tight text-slate-900 dark:text-slate-100">
-                    METROLOGY<span className="text-sky-600 dark:text-amber-400">-AI</span>
+                    PackSure<span className="text-sky-600 dark:text-amber-400">AI</span>
                   </span>
                   <span className="text-[9px] font-extrabold bg-sky-200 dark:bg-amber-500/10 text-sky-900 dark:text-amber-400 border border-sky-300 dark:border-amber-500/30 px-1.5 py-0.2 rounded">
                     LMPC 2011
@@ -135,6 +135,7 @@ export const Navbar = () => {
               </div>
             </Link>
           </div>
+
 
           {/* Center: Location & Date (Visible when logged in) */}
           {user && (
