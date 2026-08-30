@@ -19,11 +19,13 @@ import {
   Gavel,
   Sliders,
   Sparkles,
-  Camera
+  Camera,
+  MessageSquare,
+  Settings
 } from 'lucide-react';
 
 export const Sidebar = () => {
-  const { user } = useAuth();
+  const { user, setIsFeedbackModalOpen, setIsSettingsModalOpen } = useAuth();
   const location = useLocation();
 
   // Role-Segregated Navigation Items
@@ -59,10 +61,17 @@ export const Sidebar = () => {
       },
       {
         path: '/violations',
-        label: 'Violations Analytics',
+        label: 'Violations & Reports',
         icon: AlertOctagon,
-        badge: 'Heatmap',
-        desc: 'Risk clusters & non-compliance rates'
+        badge: 'Reports',
+        desc: 'Risk clusters & statutory product dossiers'
+      },
+      {
+        path: '/reports',
+        label: 'Statutory Reports',
+        icon: FileSpreadsheet,
+        badge: 'PDFs',
+        desc: 'Product inspection dossiers & certificates'
       }
     ],
     reviewer: [
@@ -188,12 +197,12 @@ export const Sidebar = () => {
         <div className="p-4 border-b border-sky-200/60 dark:border-slate-800/80">
           <div className="bg-white/80 dark:bg-slate-900/90 border border-sky-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-xs">
             <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-xl bg-gradient-to-tr ${roleMeta.avatar_color} text-white flex items-center justify-center font-bold text-sm shadow-md shadow-sky-500/20`}>
-                {user.username.slice(0, 2).toUpperCase()}
+              <div className={`w-10 h-10 rounded-xl bg-gradient-to-tr ${roleMeta?.avatar_color || 'from-sky-600 to-indigo-600'} text-white flex items-center justify-center font-bold text-sm shadow-md shadow-sky-500/20`}>
+                {(user?.full_name || user?.username || 'DO').slice(0, 2).toUpperCase()}
               </div>
               <div className="overflow-hidden">
                 <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
-                  {user.full_name || user.username}
+                  {user?.full_name || user?.username || 'Officer'}
                 </h4>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -204,11 +213,12 @@ export const Sidebar = () => {
               </div>
             </div>
             <div className="mt-2.5 pt-2 border-t border-sky-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-              <span className="font-mono text-[10px]">{user.badge_number}</span>
+              <span className="font-mono text-[10px]">{user?.badge_number || 'DOCA-INSP-2026'}</span>
               <span className="text-[10px] text-slate-400 dark:text-slate-500 truncate max-w-[110px]">
-                {user.department?.split(' ')[0]}
+                {user?.department?.split(' ')[0] || 'Legal'}
               </span>
             </div>
+
           </div>
         </div>
 
@@ -248,6 +258,27 @@ export const Sidebar = () => {
             );
           })}
         </nav>
+
+        {/* Global Settings & Feedback Quick Actions */}
+        <div className="px-3 py-2 border-t border-sky-200/60 dark:border-slate-800/80 space-y-1">
+          <button
+            type="button"
+            onClick={() => setIsSettingsModalOpen(true)}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-sky-200/50 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-100 transition-colors cursor-pointer"
+          >
+            <Settings className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+            <span>Platform Settings</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsFeedbackModalOpen(true)}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-sky-200/50 dark:hover:bg-slate-900/60 hover:text-slate-900 dark:hover:text-slate-100 transition-colors cursor-pointer"
+          >
+            <MessageSquare className="w-4 h-4 text-sky-600 dark:text-amber-400" />
+            <span>Send Feedback</span>
+          </button>
+        </div>
 
         {/* Legal Disclaimer & Version Footer */}
         <div className="p-4 border-t border-sky-200/60 dark:border-slate-800/80 text-[10px] text-slate-500 dark:text-slate-400 space-y-1">

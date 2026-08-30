@@ -20,18 +20,32 @@ import {
   FileSpreadsheet,
   Building2,
   MapPin,
-  Check
+  Check,
+  Printer,
+  Search,
+  Hash,
+  SlidersHorizontal,
+  ArrowUpDown,
+  RotateCcw,
+  X
 } from 'lucide-react';
 import { LegalNoticeModal } from '../LegalNoticeModal';
+import { InspectionReportModal } from '../InspectionReportModal';
 
 export const LegalReviewerCommandCenter = () => {
-  const { user, selectedLocation, selectedDateRange } = useAuth();
+  const { user, selectedLocation, selectedDateRange, addNotification } = useAuth();
   const navigate = useNavigate();
 
   const [inspections, setInspections] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [filterRiskIndex, setFilterRiskIndex] = useState('ALL'); // 'ALL' | 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW'
+  const [filterCaseId, setFilterCaseId] = useState('');
+  const [sortBy, setSortBy] = useState('risk_desc'); // 'risk_desc' | 'risk_asc' | 'case_asc' | 'case_desc'
+  const [searchQuery, setSearchQuery] = useState('');
   const [noticeModalScan, setNoticeModalScan] = useState(null);
+  const [selectedReportItem, setSelectedReportItem] = useState(null);
   const [actionSuccessMsg, setActionSuccessMsg] = useState('');
+
 
   useEffect(() => {
     fetchInspections();
@@ -40,56 +54,17 @@ export const LegalReviewerCommandCenter = () => {
   const fetchInspections = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/v1/inspections/');
+      const locationId = selectedLocation?.label || selectedLocation?.id || '';
+      const res = await fetch(`/api/v1/inspections/priority-queue?location=${encodeURIComponent(locationId)}&date_range=${encodeURIComponent(dateRangeId)}`);
       if (res.ok) {
         const data = await res.json();
-        setInspections(data);
-      } else {
-        throw new Error('Failed to fetch');
+        setInspections(Array.isArray(data) ? data : []);
+        return;
       }
+      setInspections([]);
     } catch (e) {
-      console.warn('Using fallback reviewer cases:', e);
-      setInspections([
-        {
-          id: 1,
-          case_number: 'LMPC-2026-DL-801',
-          product_name: 'Dabur 100% Pure Honey 500g',
-          brand_name: 'Dabur India Ltd.',
-          category: 'Food & Nutrition',
-          priority_level: 'HIGH',
-          priority_risk_index: 84,
-          stage: 'UNDER_REVIEW',
-          legal_notice_issued: false,
-          created_at: '2026-02-28 10:15',
-          violations: ['Rule 21 (Deceptive Slack Fill - 38%)', 'Rule 6(1)(da) (Unit Sale Price Missing)']
-        },
-        {
-          id: 2,
-          case_number: 'LMPC-2026-DL-802',
-          product_name: 'Patanjali Doodh Biscuit 200g',
-          brand_name: 'Patanjali Ayurved Ltd.',
-          category: 'Bakery & Confectionery',
-          priority_level: 'HIGH',
-          priority_risk_index: 78,
-          stage: 'TRIAGE',
-          legal_notice_issued: false,
-          created_at: '2026-02-28 11:30',
-          violations: ['Rule 6(1)(a) (Missing Complete Packer Address)', 'Rule 6(1)(d) (Font Height 1.2mm < 2.0mm)']
-        },
-        {
-          id: 3,
-          case_number: 'LMPC-2026-MH-409',
-          product_name: 'Amul Butter 500g',
-          brand_name: 'GCMMF (Amul)',
-          category: 'Dairy Products',
-          priority_level: 'LOW',
-          priority_risk_index: 18,
-          stage: 'COMPLETED',
-          legal_notice_issued: true,
-          created_at: '2026-02-27 16:45',
-          violations: []
-        }
-      ]);
+      console.warn('Reviewer docket fetch error:', e);
+      setInspections([]);
     } finally {
       setLoading(false);
     }
@@ -101,8 +76,44 @@ export const LegalReviewerCommandCenter = () => {
   };
 
   const pendingCases = inspections.filter(i => i.stage === 'TRIAGE' || i.stage === 'UNDER_REVIEW' || i.stage === 'TRIAGE_HOLD');
-  const highPriority = inspections.filter(i => i.priority_level === 'HIGH' || i.priority_risk_index >= 70);
+  const highPriority = inspections.filter(i => i.priority_level === 'HIGH' || (i.priority_risk_index || i.risk_score || 0) >= 70);
   const noticesIssued = inspections.filter(i => i.legal_notice_issued);
+
+  const filteredInspections = (Array.isArray(inspections) ? inspections : []).filter(item => {
+    if (!item) return false;
+    
+    // Risk Index Filter
+    const pri = Number(item.priority_risk_index || item.risk_score || 0);
+    let matchesRisk = true;
+    if (filterRiskIndex === 'CRITICAL') matchesRisk = pri >= 75;
+    else if (filterRiskIndex === 'HIGH') matchesRisk = pri >= 50 && pri < 75;
+    else if (filterRiskIndex === 'MODERATE') matchesRisk = pri >= 25 && pri < 50;
+    else if (filterRiskIndex === 'LOW') matchesRisk = pri < 25;
+
+    // Case ID Specific Filter
+    const cid = (filterCaseId || '').trim().toLowerCase();
+    const matchesCaseId = !cid || String(item.case_number || '').toLowerCase().includes(cid);
+
+    // General Search
+    const q = (searchQuery || '').trim().toLowerCase();
+    const matchesSearch = !q ||
+      String(item.product_name || '').toLowerCase().includes(q) ||
+      String(item.brand_name || '').toLowerCase().includes(q) ||
+      String(item.case_number || '').toLowerCase().includes(q);
+
+    return matchesRisk && matchesCaseId && matchesSearch;
+  }).sort((a, b) => {
+    const priA = Number(a.priority_risk_index || a.risk_score || 0);
+    const priB = Number(b.priority_risk_index || b.risk_score || 0);
+    const caseA = String(a.case_number || '');
+    const caseB = String(b.case_number || '');
+
+    if (sortBy === 'risk_desc') return priB - priA;
+    if (sortBy === 'risk_asc') return priA - priB;
+    if (sortBy === 'case_asc') return caseA.localeCompare(caseB, undefined, { numeric: true, sensitivity: 'base' });
+    if (sortBy === 'case_desc') return caseB.localeCompare(caseA, undefined, { numeric: true, sensitivity: 'base' });
+    return priB - priA;
+  });
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -314,7 +325,9 @@ export const LegalReviewerCommandCenter = () => {
               Active Legal Adjudication Docket
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Inspection records requiring statutory review, legal notices, and compliance orders
+              {loading
+                ? 'Loading adjudication queue...'
+                : `${filteredInspections.length} case${filteredInspections.length !== 1 ? 's' : ''} in docket — sorted by Priority Risk Index`}
             </p>
           </div>
           <Link
@@ -323,6 +336,96 @@ export const LegalReviewerCommandCenter = () => {
           >
             Open Full HITL Queue <ArrowRight className="w-3.5 h-3.5" />
           </Link>
+        </div>
+
+        {/* Dedicated Filter & Sort Row */}
+        <div className="p-3 bg-sky-50/70 dark:bg-slate-950/70 border border-sky-200 dark:border-slate-800 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {/* Search */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search commodity or brand..."
+                className="pl-7 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-sky-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500 w-44"
+              />
+            </div>
+
+            {/* Filter by Case ID */}
+            <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-sky-200 dark:border-slate-800 rounded-xl px-2.5 py-1 shadow-2xs">
+              <Hash className="w-3.5 h-3.5 text-indigo-600 dark:text-amber-400 shrink-0" />
+              <input
+                type="text"
+                value={filterCaseId}
+                onChange={(e) => setFilterCaseId(e.target.value)}
+                placeholder="Filter Case ID (e.g. 801)..."
+                className="bg-transparent text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none w-40 font-mono font-medium"
+              />
+              {filterCaseId && (
+                <button
+                  onClick={() => setFilterCaseId('')}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  title="Clear Case ID"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            {/* Filter by Risk Index */}
+            <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-sky-200 dark:border-slate-800 rounded-xl px-2.5 py-1 shadow-2xs">
+              <SlidersHorizontal className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Risk:</span>
+              <select
+                value={filterRiskIndex}
+                onChange={(e) => setFilterRiskIndex(e.target.value)}
+                className="bg-transparent font-semibold text-xs text-slate-900 dark:text-slate-100 focus:outline-none cursor-pointer"
+              >
+                <option value="ALL">All Risk Levels</option>
+                <option value="CRITICAL">🔴 Critical (PRI ≥ 75)</option>
+                <option value="HIGH">🟠 High (PRI 50–74)</option>
+                <option value="MODERATE">🟡 Moderate (PRI 25–49)</option>
+                <option value="LOW">🟢 Low (PRI &lt; 25)</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Sort Selector */}
+            <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-sky-200 dark:border-slate-800 rounded-xl px-2.5 py-1 shadow-2xs">
+              <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Sort:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="bg-transparent font-semibold text-xs text-slate-900 dark:text-slate-100 focus:outline-none cursor-pointer"
+              >
+                <option value="risk_desc">Risk: High → Low</option>
+                <option value="risk_asc">Risk: Low → High</option>
+                <option value="case_asc">Case ID: A → Z</option>
+                <option value="case_desc">Case ID: Z → A</option>
+              </select>
+            </div>
+
+            {/* Reset */}
+            {(filterRiskIndex !== 'ALL' || filterCaseId !== '' || searchQuery !== '') && (
+              <button
+                onClick={() => {
+                  setFilterRiskIndex('ALL');
+                  setFilterCaseId('');
+                  setSearchQuery('');
+                  setSortBy('risk_desc');
+                }}
+                className="flex items-center gap-1 px-2.5 py-1 text-slate-600 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 bg-white dark:bg-slate-900 border border-sky-200 dark:border-slate-800 rounded-xl font-semibold transition-all cursor-pointer"
+                title="Reset all filters"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -337,7 +440,7 @@ export const LegalReviewerCommandCenter = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-sky-100 dark:divide-slate-800/80">
-              {inspections.map((item) => (
+              {filteredInspections.map((item) => (
                 <tr key={item.id} className="hover:bg-sky-50/60 dark:hover:bg-slate-800/50 transition-colors">
                   <td className="py-3 px-3 font-mono font-bold text-indigo-700 dark:text-amber-400">
                     {item.case_number}
@@ -367,12 +470,22 @@ export const LegalReviewerCommandCenter = () => {
                     </div>
                   </td>
                   <td className="py-3 px-3 text-right">
-                    <button
-                      onClick={() => setNoticeModalScan(item)}
-                      className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 dark:bg-amber-500 text-white dark:text-slate-950 font-bold rounded-lg text-xs shadow-xs transition-colors"
-                    >
-                      Issue Notice
-                    </button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        onClick={() => setSelectedReportItem(item)}
+                        className="px-2.5 py-1 bg-sky-100 hover:bg-sky-200 dark:bg-slate-800 text-sky-900 dark:text-amber-400 font-bold rounded-lg text-xs flex items-center gap-1 shadow-xs transition-colors"
+                        title="Export Official Statutory Report / Certificate"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>PDF Report</span>
+                      </button>
+                      <button
+                        onClick={() => setNoticeModalScan(item)}
+                        className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 dark:bg-amber-500 text-white dark:text-slate-950 font-bold rounded-lg text-xs shadow-xs transition-colors"
+                      >
+                        Issue Notice
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -386,9 +499,21 @@ export const LegalReviewerCommandCenter = () => {
         <LegalNoticeModal
           scan={noticeModalScan}
           onClose={() => setNoticeModalScan(null)}
-          onNoticeIssued={() => {
+          onCaseUpdated={() => {
             handleCaseAction(noticeModalScan.case_number, 'Statutory Form I Notice Issued');
             setNoticeModalScan(null);
+            fetchInspections();
+          }}
+        />
+      )}
+
+      {/* Statutory Inspection & Compliance Report Modal */}
+      {selectedReportItem && (
+        <InspectionReportModal
+          isOpen={Boolean(selectedReportItem)}
+          caseItem={selectedReportItem}
+          onClose={() => setSelectedReportItem(null)}
+          onCaseUpdated={() => {
             fetchInspections();
           }}
         />
@@ -396,3 +521,5 @@ export const LegalReviewerCommandCenter = () => {
     </div>
   );
 };
+
+

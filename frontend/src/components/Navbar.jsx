@@ -22,10 +22,14 @@ import {
   CheckCircle2,
   AlertTriangle,
   Info,
-  Sliders
+  Sliders,
+  MessageSquare,
+  Settings
 } from 'lucide-react';
 import { LoginModal } from './LoginModal';
 import { HelpSupportModal } from './HelpSupportModal';
+import { FeedbackModal } from './FeedbackModal';
+import { SettingsModal } from './SettingsModal';
 
 export const Navbar = () => {
   const { 
@@ -41,8 +45,12 @@ export const Navbar = () => {
     notifications,
     markNotificationAsRead,
     markAllNotificationsAsRead,
+    removeNotification,
+    clearAllNotifications,
     setIsLoginModalOpen,
-    setIsHelpModalOpen
+    setIsHelpModalOpen,
+    setIsFeedbackModalOpen,
+    setIsSettingsModalOpen
   } = useAuth();
 
   const navigate = useNavigate();
@@ -54,6 +62,8 @@ export const Navbar = () => {
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [notifTab, setNotifTab] = useState('all'); // all, unread, critical, tasks
+
 
   const notifRef = useRef(null);
   const profileRef = useRef(null);
@@ -85,8 +95,12 @@ export const Navbar = () => {
     }, 1200);
   };
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const safeNotifications = Array.isArray(notifications) ? notifications : [];
+  const unreadCount = safeNotifications.filter(n => !n.read).length;
+  const currentLoc = selectedLocation || JURISDICTIONS[0];
+  const currentDate = selectedDateRange || DATE_RANGES[0];
   const roleMeta = user ? (ROLES_META[user.role] || ROLES_META.inspector) : null;
+
 
   return (
     <>
@@ -147,7 +161,7 @@ export const Navbar = () => {
                   title="Select Active Jurisdiction / Circle"
                 >
                   <MapPin className="w-3.5 h-3.5 text-sky-600 dark:text-amber-400 shrink-0" />
-                  <span className="truncate max-w-[150px]">{selectedLocation.label}</span>
+                  <span className="truncate max-w-[150px]">{currentLoc.label}</span>
                   <ChevronDown className="w-3 h-3 text-slate-400" />
                 </button>
 
@@ -164,7 +178,7 @@ export const Navbar = () => {
                           setShowLocationDropdown(false);
                         }}
                         className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-sky-50 dark:hover:bg-slate-800 transition-colors ${
-                          selectedLocation.id === loc.id
+                          currentLoc.id === loc.id
                             ? 'font-bold text-sky-700 dark:text-amber-400 bg-sky-50/70 dark:bg-amber-500/10'
                             : 'text-slate-700 dark:text-slate-300'
                         }`}
@@ -173,7 +187,7 @@ export const Navbar = () => {
                           <MapPin className="w-3.5 h-3.5 opacity-70" />
                           <span>{loc.label}</span>
                         </div>
-                        {selectedLocation.id === loc.id && <Check className="w-3.5 h-3.5 text-sky-600 dark:text-amber-400" />}
+                        {currentLoc.id === loc.id && <Check className="w-3.5 h-3.5 text-sky-600 dark:text-amber-400" />}
                       </button>
                     ))}
                   </div>
@@ -185,7 +199,7 @@ export const Navbar = () => {
               <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
                 <Calendar className="w-3.5 h-3.5 text-slate-400" />
                 <select
-                  value={selectedDateRange.id}
+                  value={currentDate.id}
                   onChange={(e) => {
                     const target = DATE_RANGES.find(d => d.id === e.target.value);
                     if (target) setSelectedDateRange(target);
@@ -201,6 +215,7 @@ export const Navbar = () => {
               </div>
             </div>
           )}
+
 
           {/* Right Action Controls: Notifications, Vision Key, Theme, Profile/Login */}
           <div className="flex items-center gap-1.5 sm:gap-2.5">
@@ -222,7 +237,7 @@ export const Navbar = () => {
                 </button>
 
                 {showNotifications && (
-                  <div className="absolute right-0 mt-2 w-80 sm:w-[420px] bg-white dark:bg-slate-900 border border-sky-200 dark:border-slate-800 rounded-3xl shadow-2xl py-3 z-50 animate-in fade-in zoom-in-95 duration-100">
+                  <div className="absolute right-0 mt-2 w-84 sm:w-[440px] bg-white dark:bg-slate-900 border border-sky-200 dark:border-slate-800 rounded-3xl shadow-2xl py-3 z-50 animate-in fade-in zoom-in-95 duration-100">
                     <div className="px-4 pb-2.5 border-b border-sky-100 dark:border-slate-800 flex items-center justify-between">
                       <div>
                         <div className="flex items-center gap-1.5">
@@ -232,26 +247,71 @@ export const Navbar = () => {
                           </span>
                         </div>
                         <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                          Filtered for: <b className="text-sky-700 dark:text-amber-400 capitalize">{user?.role}</b> • <span className="font-medium">{selectedLocation?.label}</span>
+                          Circle: <b className="text-sky-700 dark:text-amber-400">{currentLoc?.label}</b> • <span className="capitalize">{user?.role}</span>
                         </div>
                       </div>
-                      {unreadCount > 0 && (
+                      <div className="flex items-center gap-2">
+                        {unreadCount > 0 && (
+                          <button
+                            onClick={markAllNotificationsAsRead}
+                            className="text-[10px] text-sky-600 dark:text-amber-400 font-bold hover:underline"
+                          >
+                            Mark all read
+                          </button>
+                        )}
+                        {safeNotifications.length > 0 && (
+                          <button
+                            onClick={clearAllNotifications}
+                            className="text-[10px] text-slate-400 hover:text-rose-500 font-semibold"
+                            title="Clear all alerts"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Filter Tabs */}
+                    <div className="px-4 py-1.5 bg-sky-50/50 dark:bg-slate-950/40 border-b border-sky-100 dark:border-slate-800/80 flex items-center gap-1.5 text-[10px] overflow-x-auto">
+                      {[
+                        { id: 'all', label: `All (${safeNotifications.length})` },
+                        { id: 'unread', label: `Unread (${unreadCount})` },
+                        { id: 'critical', label: 'Critical' },
+                        { id: 'tasks', label: 'Tasks' }
+                      ].map(t => (
                         <button
-                          onClick={markAllNotificationsAsRead}
-                          className="text-[10px] text-sky-600 dark:text-amber-400 font-bold hover:underline"
+                          key={t.id}
+                          onClick={() => setNotifTab(t.id)}
+                          className={`px-2.5 py-0.5 rounded-lg font-bold transition-all shrink-0 ${
+                            notifTab === t.id
+                              ? 'bg-sky-600 dark:bg-amber-500 text-white dark:text-slate-950 shadow-xs'
+                              : 'text-slate-600 dark:text-slate-400 hover:bg-sky-100 dark:hover:bg-slate-800'
+                          }`}
                         >
-                          Mark all read
+                          {t.label}
                         </button>
-                      )}
+                      ))}
                     </div>
 
                     <div className="max-h-80 overflow-y-auto divide-y divide-sky-100 dark:divide-slate-800/80">
-                      {notifications.length === 0 ? (
-                        <div className="p-6 text-center text-xs text-slate-400">
-                          No active operational alerts in {selectedLocation?.label} at this time.
-                        </div>
-                      ) : (
-                        notifications.map((n) => {
+                      {(() => {
+                        const filteredByTab = safeNotifications.filter(n => {
+                          if (notifTab === 'unread') return !n.read;
+                          if (notifTab === 'critical') return n.type === 'critical';
+                          if (notifTab === 'tasks') return n.category === 'field_task' || n.category === 'legal_review';
+                          return true;
+                        });
+
+                        if (filteredByTab.length === 0) {
+                          return (
+                            <div className="p-6 text-center text-xs text-slate-400">
+                              No {notifTab === 'all' ? '' : notifTab} operational alerts in {currentLoc?.label}.
+                            </div>
+                          );
+                        }
+
+
+                        return filteredByTab.map((n) => {
                           const isCritical = n.type === 'critical';
                           const isWarning = n.type === 'warning';
                           const isSuccess = n.type === 'success';
@@ -259,29 +319,40 @@ export const Navbar = () => {
                           return (
                             <div
                               key={n.id}
-                              onClick={() => {
-                                markNotificationAsRead(n.id);
-                                if (n.actionLink) {
-                                  navigate(n.actionLink);
-                                  setShowNotifications(false);
-                                }
-                              }}
-                              className={`p-3.5 text-xs flex items-start gap-3 cursor-pointer hover:bg-sky-50 dark:hover:bg-slate-800/60 transition-colors ${
+                              className={`p-3.5 text-xs flex items-start gap-3 hover:bg-sky-50 dark:hover:bg-slate-800/60 transition-colors group ${
                                 !n.read ? 'bg-sky-50/60 dark:bg-slate-800/30' : ''
                               }`}
                             >
-                              <div className={`p-2 rounded-xl shrink-0 mt-0.5 ${
-                                isCritical ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20' :
-                                isWarning ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20' :
-                                isSuccess ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' :
-                                'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20'
-                              }`}>
+                              <div 
+                                onClick={() => {
+                                  markNotificationAsRead(n.id);
+                                  if (n.actionLink) {
+                                    navigate(n.actionLink);
+                                    setShowNotifications(false);
+                                  }
+                                }}
+                                className={`p-2 rounded-xl shrink-0 mt-0.5 cursor-pointer ${
+                                  isCritical ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20' :
+                                  isWarning ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20' :
+                                  isSuccess ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' :
+                                  'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20'
+                                }`}
+                              >
                                 {isCritical ? <AlertTriangle className="w-4 h-4" /> :
                                  isWarning ? <ShieldAlert className="w-4 h-4" /> :
                                  isSuccess ? <CheckCircle2 className="w-4 h-4" /> : <Info className="w-4 h-4" />}
                               </div>
 
-                              <div className="flex-1 min-w-0 space-y-1">
+                              <div 
+                                onClick={() => {
+                                  markNotificationAsRead(n.id);
+                                  if (n.actionLink) {
+                                    navigate(n.actionLink);
+                                    setShowNotifications(false);
+                                  }
+                                }}
+                                className="flex-1 min-w-0 space-y-1 cursor-pointer"
+                              >
                                 <div className="flex items-center justify-between gap-1">
                                   <span className="font-bold text-slate-900 dark:text-slate-100 text-[11px] truncate">
                                     {n.title}
@@ -313,29 +384,74 @@ export const Navbar = () => {
                                 </div>
                               </div>
 
-                              {!n.read && (
-                                <span className="w-2 h-2 rounded-full bg-sky-600 dark:bg-amber-400 shrink-0 mt-1.5 shadow-xs"></span>
-                              )}
+                              <div className="flex flex-col items-center gap-1.5 shrink-0">
+                                {!n.read && (
+                                  <button
+                                    onClick={() => markNotificationAsRead(n.id)}
+                                    title="Mark read"
+                                    className="w-2.5 h-2.5 rounded-full bg-sky-600 dark:bg-amber-400 mt-1 shadow-xs hover:scale-125 transition-transform"
+                                  />
+                                )}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeNotification(n.id);
+                                  }}
+                                  title="Dismiss notification"
+                                  className="text-slate-300 hover:text-rose-500 dark:text-slate-600 dark:hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
+                                >
+                                  ✕
+                                </button>
+                              </div>
                             </div>
                           );
-                        })
-                      )}
+                        });
+                      })()}
                     </div>
 
-                    <div className="px-4 pt-2 border-t border-sky-100 dark:border-slate-800 text-center">
+                    <div className="px-4 pt-2 border-t border-sky-100 dark:border-slate-800 text-center flex items-center justify-between">
                       <Link
                         to="/review-queue"
                         onClick={() => setShowNotifications(false)}
                         className="text-[11px] font-bold text-sky-600 dark:text-amber-400 hover:underline"
                       >
-                        Open Priority Radar & Case Triage Docket →
+                        Priority Case Radar →
+                      </Link>
+                      <Link
+                        to="/products"
+                        onClick={() => setShowNotifications(false)}
+                        className="text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                      >
+                        All Commodities Database →
                       </Link>
                     </div>
                   </div>
                 )}
 
+
               </div>
             )}
+
+            {/* Platform Settings Trigger (Accessible to Everyone) */}
+            <button
+              onClick={() => setIsSettingsModalOpen(true)}
+              className="p-2 rounded-xl bg-sky-100/70 dark:bg-slate-900 border border-sky-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-sky-200 dark:hover:bg-slate-800 transition-all cursor-pointer"
+              title="Platform Settings & Calibration"
+              aria-label="Settings"
+            >
+              <Settings className="w-4 h-4 text-slate-700 dark:text-slate-300" />
+            </button>
+
+            {/* Platform Feedback Trigger (Accessible to Everyone) */}
+            <button
+              onClick={() => setIsFeedbackModalOpen(true)}
+              className="p-2 rounded-xl bg-sky-100/70 dark:bg-slate-900 border border-sky-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-sky-200 dark:hover:bg-slate-800 transition-all flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
+              title="Send Platform Feedback & Feature Suggestions"
+              aria-label="Feedback"
+            >
+              <MessageSquare className="w-4 h-4 text-sky-700 dark:text-amber-400" />
+              <span className="hidden xl:inline">Feedback</span>
+            </button>
 
             {/* Help Modal Trigger */}
             <button
@@ -397,7 +513,7 @@ export const Navbar = () => {
                   <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden sm:block" />
                 </button>
 
-                {/* Profile Popover Menu (Dossier & Log Out only) */}
+                {/* Profile Popover Menu */}
                 {showProfileMenu && (
                   <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-slate-900 border border-sky-200 dark:border-slate-800 rounded-3xl shadow-2xl p-4 z-50 animate-in fade-in zoom-in-95 duration-100 space-y-3">
                     {/* User Identity Details */}
@@ -441,6 +557,30 @@ export const Navbar = () => {
                       </div>
                     </div>
 
+                    {/* Profile Quick Settings & Feedback Links */}
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <button
+                        onClick={() => {
+                          setShowProfileMenu(false);
+                          setIsSettingsModalOpen(true);
+                        }}
+                        className="p-2 rounded-xl bg-sky-50 dark:bg-slate-800 hover:bg-sky-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <Settings className="w-3.5 h-3.5" />
+                        <span>Settings</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowProfileMenu(false);
+                          setIsFeedbackModalOpen(true);
+                        }}
+                        className="p-2 rounded-xl bg-sky-50 dark:bg-slate-800 hover:bg-sky-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-sky-600 dark:text-amber-400" />
+                        <span>Feedback</span>
+                      </button>
+                    </div>
+
                     {/* Notice for Role Switching */}
                     <div className="text-[10px] text-slate-500 dark:text-slate-400 bg-sky-100/50 dark:bg-slate-800/40 p-2.5 rounded-xl border border-sky-200/60 dark:border-slate-700/60 leading-relaxed">
                       💡 <b>Role Security:</b> To switch your operational workspace (e.g. to Legal Reviewer or Admin), please Log Out and sign in from the main portal.
@@ -453,7 +593,7 @@ export const Navbar = () => {
                         setShowProfileMenu(false);
                         navigate('/');
                       }}
-                      className="w-full py-2.5 px-3 rounded-xl text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 flex items-center justify-center gap-2 font-bold transition-all"
+                      className="w-full py-2.5 px-3 rounded-xl text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 flex items-center justify-center gap-2 font-bold transition-all cursor-pointer"
                     >
                       <LogOut className="w-4 h-4" />
                       <span>Log Out & Exit Workspace</span>
@@ -477,10 +617,11 @@ export const Navbar = () => {
         </div>
       </header>
 
-
       {/* Modals */}
       <LoginModal />
       <HelpSupportModal />
+      <FeedbackModal />
+      <SettingsModal />
 
       {/* Gemini Vision API Key Modal */}
       {showKeyModal && (

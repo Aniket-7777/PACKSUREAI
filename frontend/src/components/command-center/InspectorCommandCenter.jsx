@@ -28,24 +28,39 @@ import {
   Target,
   FileSpreadsheet,
   RefreshCw,
-  Barcode
+  Building2,
+  Calendar,
+  Barcode,
+  Printer,
+  Lock,
+  Hash,
+  ArrowUpDown,
+  SlidersHorizontal,
+  RotateCcw,
+  X
 } from 'lucide-react';
 import { BarcodeScannerModal } from '../BarcodeScannerModal';
+import { InspectionReportModal } from '../InspectionReportModal';
+import { LegalNoticeModal } from '../LegalNoticeModal';
 
 export const InspectorCommandCenter = () => {
-
   const { user, selectedLocation, selectedDateRange } = useAuth();
   const navigate = useNavigate();
 
   const [queue, setQueue] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [filterPriority, setFilterPriority] = useState('ALL');
+  const [filterRiskIndex, setFilterRiskIndex] = useState('ALL'); // 'ALL' | 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW'
+  const [filterCaseId, setFilterCaseId] = useState('');
+  const [sortBy, setSortBy] = useState('risk_desc'); // 'risk_desc' | 'risk_asc' | 'case_asc' | 'case_desc'
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [quickBarcode, setQuickBarcode] = useState('');
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
+  const [selectedReportItem, setSelectedReportItem] = useState(null);
+  const [selectedNoticeItem, setSelectedNoticeItem] = useState(null);
   const [memoSuccess, setMemoSuccess] = useState('');
-
+  const [completedCaseIds, setCompletedCaseIds] = useState(new Set());
 
   useEffect(() => {
     fetchDashboardData();
@@ -54,10 +69,11 @@ export const InspectorCommandCenter = () => {
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      const locationId = selectedLocation?.id || '';
+      const locationId = selectedLocation?.label || selectedLocation?.id || '';
+      const dateRangeId = selectedDateRange?.id || 'all';
       const [queueRes, analyticsRes] = await Promise.all([
-        fetch(`/api/v1/inspections/priority-queue?location=${encodeURIComponent(locationId)}`),
-        fetch(`/api/v1/analytics/summary?location=${encodeURIComponent(locationId)}`),
+        fetch(`/api/v1/inspections/priority-queue?location=${encodeURIComponent(locationId)}&date_range=${encodeURIComponent(dateRangeId)}`),
+        fetch(`/api/v1/analytics/summary?location=${encodeURIComponent(locationId)}&date_range=${encodeURIComponent(dateRangeId)}`),
       ]);
 
       if (queueRes.ok) {
@@ -90,28 +106,111 @@ export const InspectorCommandCenter = () => {
     }
   };
 
-  const handleQuickLookup = (e) => {
-    e.preventDefault();
-    if (quickBarcode.trim()) {
-      navigate(`/scan?barcode=${encodeURIComponent(quickBarcode.trim())}`);
+  const handleCaseUpdated = (caseNo, newStage) => {
+    setCompletedCaseIds(prev => new Set([...prev, caseNo]));
+    setQueue(prevQueue => prevQueue.map(item => 
+      (item.case_number === caseNo || String(item.id) === String(caseNo)) 
+        ? { ...item, stage: newStage, legal_notice_issued: newStage === 'NOTICE_ISSUED' } 
+        : item
+    ));
+    setMemoSuccess(`Case ${caseNo} successfully transitioned to ${newStage}. Action station updated in real-time.`);
+    setTimeout(() => setMemoSuccess(''), 4500);
+    fetchDashboardData();
+  };
+
+  const handleBarcodeScanned = (code, lookupResult) => {
+    setQuickBarcode(code);
+    setIsBarcodeModalOpen(false);
+    
+    // Check if this product or barcode exists in the live queue
+    const matchedQueueItem = queue.find(item => 
+      (item.barcode && String(item.barcode).trim() === String(code).trim()) ||
+      (lookupResult?.product && String(item.product_name || '').toLowerCase().includes(String(lookupResult.product).toLowerCase()))
+    );
+
+    if (matchedQueueItem) {
+      setSelectedReportItem(matchedQueueItem);
+    } else {
+      navigate(`/scan?barcode=${encodeURIComponent(code)}`);
     }
   };
 
-  const handleIssueSpotMemo = (caseNo) => {
-    setMemoSuccess(`Spot Non-Compliance Notice generated for Case ${caseNo}. Officer dispatch recorded.`);
-    setTimeout(() => setMemoSuccess(''), 4500);
+  const handleQuickLookup = (e) => {
+    e.preventDefault();
+    const code = quickBarcode.trim();
+    if (!code) return;
+
+    const matchedQueueItem = queue.find(item => 
+      (item.barcode && String(item.barcode).trim() === String(code).trim()) ||
+      String(item.case_number || '').toLowerCase() === String(code).toLowerCase()
+    );
+
+    if (matchedQueueItem) {
+      setSelectedReportItem(matchedQueueItem);
+    } else {
+      navigate(`/scan?barcode=${encodeURIComponent(code)}`);
+    }
   };
+
+  const handleIssueSpotMemo = (caseItem) => {
+    setSelectedNoticeItem(caseItem);
+  };
+
+  // Live actionable pending queue (excludes already certified or notice-dispatched cases)
+  const pendingQueue = queue.filter(item => 
+    item.stage !== 'CERTIFIED_COMPLIANT' && 
+    item.stage !== 'CLOSED' && 
+    item.stage !== 'NOTICE_ISSUED' && 
+    !completedCaseIds.has(item.case_number) &&
+    !completedCaseIds.has(item.id)
+  );
+
+  // Completed / Audited cases
+  const completedQueue = queue.filter(item => 
+    item.stage === 'CERTIFIED_COMPLIANT' || 
+    item.stage === 'CLOSED' || 
+    item.stage === 'NOTICE_ISSUED' || 
+    completedCaseIds.has(item.case_number) ||
+    completedCaseIds.has(item.id)
+  );
 
   const filteredQueue = (Array.isArray(queue) ? queue : []).filter(item => {
     if (!item) return false;
     const matchesPriority = filterPriority === 'ALL' || item.priority_level === filterPriority;
-    const q = (searchQuery || '').toLowerCase();
+    
+    // Risk Index Filter
+    const pri = Number(item.priority_risk_index || item.risk_score || 0);
+    let matchesRisk = true;
+    if (filterRiskIndex === 'CRITICAL') matchesRisk = pri >= 75;
+    else if (filterRiskIndex === 'HIGH') matchesRisk = pri >= 50 && pri < 75;
+    else if (filterRiskIndex === 'MODERATE') matchesRisk = pri >= 25 && pri < 50;
+    else if (filterRiskIndex === 'LOW') matchesRisk = pri < 25;
+
+    // Case ID Specific Filter
+    const cid = (filterCaseId || '').trim().toLowerCase();
+    const matchesCaseId = !cid || String(item.case_number || '').toLowerCase().includes(cid);
+
+    // General Search
+    const q = (searchQuery || '').trim().toLowerCase();
     const matchesSearch = !q ||
       String(item.product_name || '').toLowerCase().includes(q) ||
       String(item.brand_name || '').toLowerCase().includes(q) ||
       String(item.case_number || '').toLowerCase().includes(q);
-    return matchesPriority && matchesSearch;
+
+    return matchesPriority && matchesRisk && matchesCaseId && matchesSearch;
+  }).sort((a, b) => {
+    const priA = Number(a.priority_risk_index || a.risk_score || 0);
+    const priB = Number(b.priority_risk_index || b.risk_score || 0);
+    const caseA = String(a.case_number || '');
+    const caseB = String(b.case_number || '');
+
+    if (sortBy === 'risk_desc') return priB - priA;
+    if (sortBy === 'risk_asc') return priA - priB;
+    if (sortBy === 'case_asc') return caseA.localeCompare(caseB, undefined, { numeric: true, sensitivity: 'base' });
+    if (sortBy === 'case_desc') return caseB.localeCompare(caseA, undefined, { numeric: true, sensitivity: 'base' });
+    return priB - priA;
   });
+
 
   const totalScans = analytics?.total_scans_conducted ?? queue.length;
   const totalViolations = analytics?.total_violations_flagged ?? queue.reduce((s, i) => s + (i.violations_count || 0), 0);
@@ -246,35 +345,53 @@ export const InspectorCommandCenter = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Action Card 1: Highest priority from live queue */}
+          {/* Action Card 1: Priority 1 - Field Audit */}
           {(() => {
-            const topCase = queue[0];
+            // Find highest risk case from pendingQueue, or first pending case
+            const topCase = pendingQueue.find(i => i.violations_count > 0 || i.priority_risk_index >= 30) || pendingQueue[0];
+            const isCompliant = topCase && (topCase.violations_count === 0 || topCase.compliance_status === 'COMPLIANT');
+
             return (
               <div className="bg-white/90 dark:bg-slate-900/90 border-2 border-rose-500/30 hover:border-rose-500 dark:border-rose-500/20 dark:hover:border-rose-500/50 p-4 rounded-2xl shadow-xs space-y-3 transition-all">
                 <div className="flex items-center justify-between">
                   <span className="px-2 py-0.5 bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20 text-[10px] font-bold rounded-full uppercase flex items-center gap-1">
                     <AlertOctagon className="w-3 h-3" /> Priority 1: Field Audit
                   </span>
-                  <span className="text-[10px] text-slate-400 font-mono">{topCase ? `PRI ${topCase.priority_risk_index}` : 'No cases'}</span>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {topCase ? `PRI ${topCase.priority_risk_index}` : (completedQueue.length > 0 ? `${completedQueue.length} Cleared` : 'Radar Active')}
+                  </span>
                 </div>
                 <div>
                   <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                    {topCase ? `Audit: ${topCase.product_name}` : 'No high-risk cases pending'}
+                    {topCase ? `Audit: ${topCase.product_name}` : `All Field Items Cleared (${completedQueue.length} Audited)`}
                   </h3>
                   <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 leading-snug">
                     {topCase
-                      ? `Case ${topCase.case_number} — ${topCase.violations_count} statutory violation${topCase.violations_count !== 1 ? 's' : ''} detected.`
-                      : 'All clear. Queue is empty.'}
+                      ? (!isCompliant 
+                          ? `Case ${topCase.case_number} — ${topCase.violations_count} statutory breach(es) flagged for ${topCase.brand_name}.`
+                          : `Case ${topCase.case_number} — 100.0% LMPC Conformity. Ready for officer sign-off.`)
+                      : 'All priority cases in current circle have been inspected and certified. Ready for new live sweep.'}
                   </p>
+                  {topCase && (
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between font-mono mt-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800">
+                      <span>📸 Scan: {topCase.scanned_by_name || 'Insp. Priya Sharma'}</span>
+                      <span className="text-sky-700 dark:text-amber-400 font-bold">
+                        {topCase.stage === 'CERTIFIED_COMPLIANT' || topCase.stage === 'NOTICE_ISSUED' || topCase.stage === 'CLOSED'
+                          ? `⚖️ Auditor: ${topCase.inspector_name || 'Aniket Kumar'}`
+                          : `⚖️ Assigned: ${topCase.inspector_name || 'Aniket Kumar'} (Pending)`}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 {topCase ? (
-                  <Link
-                    to={`/scan?id=${topCase.scan_id}`}
-                    className="w-full py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+                  <button
+                    onClick={() => setSelectedReportItem(topCase)}
+                    className="w-full py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition-colors cursor-pointer"
                   >
-                    <span>Open Inspection</span>
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>{isCompliant ? 'Sign & Certify Conformity' : 'Open Inspection Dossier'}</span>
                     <ArrowRight className="w-3.5 h-3.5" />
-                  </Link>
+                  </button>
                 ) : (
                   <Link
                     to="/scan"
@@ -288,45 +405,64 @@ export const InspectorCommandCenter = () => {
             );
           })()}
 
-          {/* Action Card 2: Second highest */}
+          {/* Action Card 2: Priority 2 - Statutory Spot Notice */}
           {(() => {
-            const secCase = queue[1];
+            // Find case that actually has breaches/violations from pending queue
+            const breachCase = pendingQueue.find(i => i.violations_count > 0 || (Array.isArray(i.violations) && i.violations.length > 0));
+
             return (
               <div className="bg-white/90 dark:bg-slate-900/90 border-2 border-amber-500/30 hover:border-amber-500 dark:border-amber-500/20 dark:hover:border-amber-500/50 p-4 rounded-2xl shadow-xs space-y-3 transition-all">
                 <div className="flex items-center justify-between">
                   <span className="px-2 py-0.5 bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 text-[10px] font-bold rounded-full uppercase flex items-center gap-1">
                     <AlertTriangle className="w-3 h-3" /> Priority 2: Spot Memo
                   </span>
-                  <span className="text-[10px] text-slate-400 font-mono">{secCase ? `PRI ${secCase.priority_risk_index}` : '—'}</span>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {breachCase ? `PRI ${breachCase.priority_risk_index}` : 'Zero Breaches'}
+                  </span>
                 </div>
                 <div>
                   <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                    {secCase ? `Issue Notice: ${secCase.brand_name}` : 'No secondary case'}
+                    {breachCase ? `Issue Notice: ${breachCase.brand_name}` : 'Adjudication: Zero Outstanding Breaches'}
                   </h3>
                   <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 leading-snug">
-                    {secCase
-                      ? `${secCase.product_name} — ${secCase.violations_count} violation(s). Case: ${secCase.case_number}.`
-                      : 'No additional high-risk cases in queue.'}
+                    {breachCase
+                      ? `${breachCase.product_name} — ${breachCase.violations_count || breachCase.violations.length} breach(es) flagged under Section 36(1).`
+                      : 'All audited packages in current circle comply with LMPC Rules 2011. No pending Section 36 notices.'}
                   </p>
+                  {breachCase && (
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between font-mono mt-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800">
+                      <span>📸 Origin: {breachCase.scanned_by_name || 'Insp. Priya Sharma'}</span>
+                      <span className="text-amber-700 dark:text-amber-400 font-bold">🏛️ {breachCase.scan_location || 'Field Circle'}</span>
+                    </div>
+                  )}
                 </div>
-                {secCase ? (
+
+                {breachCase ? (
                   <button
-                    onClick={() => handleIssueSpotMemo(secCase.case_number)}
-                    className="w-full py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+                    onClick={() => handleIssueSpotMemo(breachCase)}
+                    className="w-full py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition-colors cursor-pointer"
                   >
                     <FileSpreadsheet className="w-3.5 h-3.5" />
-                    <span>Issue Spot Notice</span>
+                    <span>Issue Spot Show-Cause Notice</span>
                   </button>
                 ) : (
-                  <div className="w-full py-2 bg-slate-100 dark:bg-slate-800 text-slate-400 font-bold rounded-xl text-xs flex items-center justify-center">
-                    Queue Empty
-                  </div>
+                  <button
+                    onClick={() => {
+                      if (queue[0]) setSelectedReportItem(queue[0]);
+                      else navigate('/reports');
+                    }}
+                    className="w-full py-2 bg-sky-100 dark:bg-slate-800 hover:bg-sky-200 dark:hover:bg-slate-700 text-sky-800 dark:text-slate-200 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>View Circle Clearance Dossier</span>
+                  </button>
                 )}
               </div>
             );
           })()}
 
-          {/* Action Card 3: Quick barcode lookup */}
+
+          {/* Action Card 3: Rapid Barcode & EAN Verification */}
           <div className="bg-white/90 dark:bg-slate-900/90 border-2 border-sky-500/30 hover:border-sky-500 dark:border-sky-500/20 dark:hover:border-sky-500/50 p-4 rounded-2xl shadow-xs space-y-3 transition-all">
             <div className="flex items-center justify-between">
               <span className="px-2 py-0.5 bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20 text-[10px] font-bold rounded-full uppercase flex items-center gap-1">
@@ -335,7 +471,7 @@ export const InspectorCommandCenter = () => {
               <button
                 type="button"
                 onClick={() => setIsBarcodeModalOpen(true)}
-                className="text-[10px] font-bold text-sky-700 dark:text-amber-400 hover:underline flex items-center gap-1"
+                className="text-[10px] font-bold text-sky-700 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
               >
                 <Camera className="w-3 h-3" />
                 <span>Camera HUD</span>
@@ -363,7 +499,7 @@ export const InspectorCommandCenter = () => {
               <button
                 type="button"
                 onClick={() => setIsBarcodeModalOpen(true)}
-                className="px-2.5 py-1.5 bg-sky-100 dark:bg-slate-800 hover:bg-sky-200 text-sky-800 dark:text-amber-400 font-bold rounded-xl text-xs border border-sky-300 dark:border-slate-700 transition-colors flex items-center gap-1"
+                className="px-2.5 py-1.5 bg-sky-100 dark:bg-slate-800 hover:bg-sky-200 text-sky-800 dark:text-amber-400 font-bold rounded-xl text-xs border border-sky-300 dark:border-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
                 title="Scan barcode with camera"
               >
                 <Camera className="w-3.5 h-3.5" />
@@ -371,12 +507,13 @@ export const InspectorCommandCenter = () => {
               </button>
               <button
                 type="submit"
-                className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 dark:bg-amber-500 text-white dark:text-slate-950 font-bold rounded-xl text-xs transition-colors"
+                className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 dark:bg-amber-500 text-white dark:text-slate-950 font-bold rounded-xl text-xs transition-colors cursor-pointer"
               >
                 Query
               </button>
             </form>
           </div>
+
 
         </div>
       </div>
@@ -401,32 +538,112 @@ export const InspectorCommandCenter = () => {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center bg-sky-100/70 dark:bg-slate-950 border border-sky-200 dark:border-slate-800 p-1 rounded-xl text-xs">
-              {['ALL', 'HIGH', 'MEDIUM'].map(p => (
-                <button
-                  key={p}
-                  onClick={() => setFilterPriority(p)}
-                  className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
-                    filterPriority === p
-                      ? 'bg-sky-600 dark:bg-amber-500 text-white dark:text-slate-950 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
-                  }`}
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-
             <div className="relative">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search brand, product, case..."
-                className="pl-8 pr-3 py-1.5 bg-sky-50 dark:bg-slate-950 border border-sky-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                placeholder="Search brand, product..."
+                className="pl-8 pr-3 py-1.5 bg-sky-50 dark:bg-slate-950 border border-sky-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500 w-44 sm:w-56"
               />
             </div>
+          </div>
+        </div>
+
+        {/* Dedicated Filter & Sort Control Bar */}
+        <div className="p-3 bg-sky-50/70 dark:bg-slate-950/70 border border-sky-200 dark:border-slate-800 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {/* Filter by Case ID */}
+            <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-sky-200 dark:border-slate-800 rounded-xl px-2.5 py-1 shadow-2xs">
+              <Hash className="w-3.5 h-3.5 text-sky-600 dark:text-amber-400 shrink-0" />
+              <input
+                type="text"
+                value={filterCaseId}
+                onChange={(e) => setFilterCaseId(e.target.value)}
+                placeholder="Filter by Case ID (e.g. 801, LMPC)..."
+                className="bg-transparent text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none w-48 font-mono font-medium"
+              />
+              {filterCaseId && (
+                <button
+                  onClick={() => setFilterCaseId('')}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  title="Clear Case ID filter"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            {/* Filter by Risk Index Range */}
+            <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-sky-200 dark:border-slate-800 rounded-xl px-2.5 py-1 shadow-2xs">
+              <SlidersHorizontal className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Risk Index:</span>
+              <select
+                value={filterRiskIndex}
+                onChange={(e) => setFilterRiskIndex(e.target.value)}
+                className="bg-transparent font-semibold text-xs text-slate-900 dark:text-slate-100 focus:outline-none cursor-pointer"
+              >
+                <option value="ALL">All Risk Levels (0–100 PRI)</option>
+                <option value="CRITICAL">🔴 Critical Risk (PRI ≥ 75)</option>
+                <option value="HIGH">🟠 High Risk (PRI 50–74)</option>
+                <option value="MODERATE">🟡 Moderate Risk (PRI 25–49)</option>
+                <option value="LOW">🟢 Low Risk (PRI &lt; 25)</option>
+              </select>
+            </div>
+
+            {/* Priority Level Buttons */}
+            <div className="flex items-center bg-white dark:bg-slate-900 border border-sky-200 dark:border-slate-800 p-0.5 rounded-xl text-xs">
+              {['ALL', 'HIGH', 'MEDIUM'].map(p => (
+                <button
+                  key={p}
+                  onClick={() => setFilterPriority(p)}
+                  className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                    filterPriority === p
+                      ? 'bg-sky-600 dark:bg-amber-500 text-white dark:text-slate-950 shadow-2xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                  }`}
+                >
+                  {p === 'ALL' ? 'All Priority' : p}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Sort Selector */}
+            <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-sky-200 dark:border-slate-800 rounded-xl px-2.5 py-1 shadow-2xs">
+              <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Sort:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="bg-transparent font-semibold text-xs text-slate-900 dark:text-slate-100 focus:outline-none cursor-pointer"
+              >
+                <option value="risk_desc">Risk Index: High → Low</option>
+                <option value="risk_asc">Risk Index: Low → High</option>
+                <option value="case_asc">Case ID: Ascending (A-Z)</option>
+                <option value="case_desc">Case ID: Descending (Z-A)</option>
+              </select>
+            </div>
+
+            {/* Reset Filters */}
+            {(filterRiskIndex !== 'ALL' || filterCaseId !== '' || filterPriority !== 'ALL' || searchQuery !== '') && (
+              <button
+                onClick={() => {
+                  setFilterRiskIndex('ALL');
+                  setFilterCaseId('');
+                  setFilterPriority('ALL');
+                  setSearchQuery('');
+                  setSortBy('risk_desc');
+                }}
+                className="flex items-center gap-1 px-2.5 py-1 text-slate-600 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 bg-white dark:bg-slate-900 border border-sky-200 dark:border-slate-800 rounded-xl font-semibold transition-all cursor-pointer"
+                title="Reset all filters"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -437,7 +654,7 @@ export const InspectorCommandCenter = () => {
               <tr className="border-b border-sky-200/80 dark:border-slate-800 text-[10px] uppercase font-bold text-slate-400">
                 <th className="py-2.5 px-3">Case ID</th>
                 <th className="py-2.5 px-3">Product / Brand</th>
-                <th className="py-2.5 px-3">Auditing Inspector</th>
+                <th className="py-2.5 px-3">Chain of Custody (Scanner → Auditor)</th>
                 <th className="py-2.5 px-3">Category</th>
                 <th className="py-2.5 px-3">Risk Index</th>
                 <th className="py-2.5 px-3">Flagged Statutory Non-Compliances</th>
@@ -466,30 +683,86 @@ export const InspectorCommandCenter = () => {
                 filteredQueue.map((item) => {
                   const isHigh = item.priority_level === 'HIGH' || item.priority_risk_index >= 70;
                   const violations = Array.isArray(item.violations) ? item.violations : [];
+                  const isCrossAudit = Boolean(item.scanned_by_name && item.inspector_name && item.scanned_by_name !== item.inspector_name);
+                  const isAudited = item.stage === 'CERTIFIED_COMPLIANT' || item.stage === 'NOTICE_ISSUED' || item.stage === 'CLOSED';
+                  const isAdmin = user?.role === 'admin' || user?.role === 'reviewer' || user?.role === 'superadmin';
+                  const isAssigned = Boolean(
+                    !item.inspector_name ||
+                    (user?.id && item.inspector_id && String(user.id) === String(item.inspector_id)) ||
+                    (user?.badge_number && item.inspector_badge && user.badge_number.toLowerCase() === item.inspector_badge.toLowerCase()) ||
+                    (user?.full_name && item.inspector_name && user.full_name.toLowerCase().trim() === item.inspector_name.toLowerCase().trim()) ||
+                    (user?.username && item.inspector_name && item.inspector_name.toLowerCase().includes(user.username.toLowerCase()))
+                  );
+                  const isItemReadOnly = !isAdmin && !isAssigned;
+
                   return (
                     <tr key={item.id || item.case_number} className="hover:bg-sky-50/60 dark:hover:bg-slate-800/50 transition-colors">
                       <td className="py-3 px-3 font-mono font-bold text-sky-700 dark:text-amber-400">
-                        {item.case_number}
+                        <div>{item.case_number}</div>
+                        <div className="flex items-center gap-1 mt-1">
+                          {item.stage === 'CERTIFIED_COMPLIANT' ? (
+                            <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-bold rounded flex items-center gap-0.5">
+                              ✓ Cleared
+                            </span>
+                          ) : item.stage === 'NOTICE_ISSUED' ? (
+                            <span className="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-500/20 text-[9px] font-bold rounded flex items-center gap-0.5">
+                              ⚖ Notice Sent
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 text-[9px] font-bold rounded flex items-center gap-0.5">
+                              ⚡ Pending Audit
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-3">
                         <div className="font-bold text-slate-900 dark:text-slate-100">{item.product_name}</div>
                         <div className="text-[11px] text-slate-500">{item.brand_name}</div>
                       </td>
                       <td className="py-3 px-3">
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-5 h-5 rounded-full bg-sky-100 dark:bg-slate-800 text-sky-800 dark:text-amber-400 flex items-center justify-center text-[10px] font-bold shrink-0">
-                            {(item.inspector_name || 'Insp').charAt(0)}
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5 text-[11px]">
+                            <span className="text-[9px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-1 py-0.2 rounded shrink-0">
+                              📸 Scan:
+                            </span>
+                            <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[130px]">
+                              {item.scanned_by_name || 'Insp. Priya Sharma'}
+                            </span>
+                            <span className="text-[9px] font-mono text-slate-400">
+                              ({item.scanned_by_badge || 'DOCA-INSP-302'})
+                            </span>
                           </div>
-                          <div>
-                            <div className="font-bold text-slate-900 dark:text-slate-100 text-[11px] whitespace-nowrap">
-                              {item.inspector_name || 'Insp. Vikram Singh'}
-                            </div>
-                            <div className="text-[9px] font-mono text-slate-400">
-                              {item.inspector_badge || 'DOCA-INSP-104'}
-                            </div>
+
+                          <div className="flex items-center gap-1.5 text-[11px]">
+                            <span className="text-[9px] font-bold text-sky-700 dark:text-amber-400 bg-sky-50 dark:bg-amber-500/10 px-1 py-0.2 rounded shrink-0">
+                              {isAudited ? '⚖️ Audited By:' : '⚖️ Assigned:'}
+                            </span>
+                            <span className="font-bold text-slate-900 dark:text-slate-100 truncate max-w-[130px]">
+                              {item.inspector_name || user?.full_name || 'Aniket Kumar'}
+                            </span>
+                            <span className="text-[9px] font-mono text-slate-400">
+                              ({item.inspector_badge || user?.badge_number || 'DOCA-INSP-2026'})
+                            </span>
+                            {!isAudited && (
+                              <span className={`text-[8px] font-medium px-1 py-0.2 rounded flex items-center gap-0.5 ${
+                                isItemReadOnly 
+                                  ? 'text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 border border-rose-300/60 dark:border-rose-700/60'
+                                  : 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 border border-amber-300/60 dark:border-amber-700/60'
+                              }`}>
+                                {isItemReadOnly && <Lock className="w-2.5 h-2.5 shrink-0" />}
+                                <span>{isItemReadOnly ? 'Locked' : 'Pending'}</span>
+                              </span>
+                            )}
+                            {isCrossAudit && (
+                              <span className="text-[8px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 px-1 rounded">
+                                Peer
+                              </span>
+                            )}
                           </div>
                         </div>
                       </td>
+
+
                       <td className="py-3 px-3 text-slate-600 dark:text-slate-400 font-medium">
                         {item.category}
                       </td>
@@ -525,12 +798,26 @@ export const InspectorCommandCenter = () => {
                       </td>
                       <td className="py-3 px-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          <Link
-                            to={`/scan?id=${item.scan_id}`}
-                            className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 dark:bg-amber-500 text-white dark:text-slate-950 font-bold rounded-lg text-[11px] transition-colors"
+                          <button
+                            type="button"
+                            onClick={() => setSelectedReportItem(item)}
+                            className="p-1.5 rounded-lg bg-sky-100 dark:bg-slate-800 hover:bg-sky-200 text-sky-800 dark:text-amber-400 transition-colors cursor-pointer"
+                            title="Export Official Statutory PDF Report"
                           >
-                            Inspect
-                          </Link>
+                            <Printer className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedReportItem(item)}
+                            className={`px-2.5 py-1 font-bold rounded-lg text-[11px] transition-colors flex items-center gap-1 cursor-pointer ${
+                              isItemReadOnly
+                                ? 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700'
+                                : 'bg-sky-600 hover:bg-sky-700 dark:bg-amber-500 dark:hover:bg-amber-400 text-white dark:text-slate-950'
+                            }`}
+                          >
+                            {isItemReadOnly && <Lock className="w-2.5 h-2.5 shrink-0" />}
+                            <span>{isItemReadOnly ? 'View (Read-Only)' : 'Inspect'}</span>
+                          </button>
                           <Link
                             to="/review-queue"
                             className="p-1 rounded-lg hover:bg-sky-200 dark:hover:bg-slate-700 text-slate-500"
@@ -554,13 +841,38 @@ export const InspectorCommandCenter = () => {
         isOpen={isBarcodeModalOpen}
         onClose={() => setIsBarcodeModalOpen(false)}
         initialBarcode={quickBarcode}
-        onBarcodeScanned={(code) => {
-          setQuickBarcode(code);
-          navigate(`/products?q=${encodeURIComponent(code)}`);
-        }}
+        onBarcodeScanned={handleBarcodeScanned}
       />
+
+      {/* Statutory Inspection & Compliance Report Modal */}
+      {selectedReportItem && (
+        <InspectionReportModal
+          isOpen={Boolean(selectedReportItem)}
+          caseItem={selectedReportItem}
+          scanData={selectedReportItem}
+          onClose={() => setSelectedReportItem(null)}
+          onCaseUpdated={handleCaseUpdated}
+        />
+      )}
+
+      {/* Legal Notice Show-Cause Modal */}
+      {selectedNoticeItem && (
+        <LegalNoticeModal
+          isOpen={Boolean(selectedNoticeItem)}
+          scan={selectedNoticeItem}
+          scanId={selectedNoticeItem.id || selectedNoticeItem.scan_id}
+          caseNumber={selectedNoticeItem.case_number}
+          brandName={selectedNoticeItem.brand_name}
+          productName={selectedNoticeItem.product_name}
+          violations={selectedNoticeItem.violations}
+          onClose={() => setSelectedNoticeItem(null)}
+          onCaseUpdated={handleCaseUpdated}
+        />
+      )}
+
     </div>
   );
 };
+
 
 

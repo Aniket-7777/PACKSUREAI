@@ -274,7 +274,10 @@ export const INITIAL_NOTIFICATIONS = [
   }
 ];
 
+export const DEFAULT_NOTIFICATIONS = INITIAL_NOTIFICATIONS;
+
 export const AuthProvider = ({ children }) => {
+
   // Check localStorage for persisted user session
   const [user, setUser] = useState(() => {
     try {
@@ -289,15 +292,15 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
   // Operational Context Filters
   const [selectedLocation, setSelectedLocation] = useState(JURISDICTIONS[0]);
   const [selectedDateRange, setSelectedDateRange] = useState(DATE_RANGES[0]);
 
-  // Notifications State
-  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
-
   // Theme State: 'light' is default (Light Sky Blue shade), 'dark' toggleable
+
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('app_theme') || 'light';
 
@@ -430,6 +433,27 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('auth_token');
   };
 
+  // Dynamic Role & Jurisdiction Filtered Notifications
+  const currentRole = user?.role === 'citizen' ? 'customer' : (user?.role || 'inspector');
+  const activeJurisdiction = selectedLocation?.label || user?.jurisdiction || 'Delhi NCR (North Zone)';
+
+  const [notifications, setNotifications] = useState(() => {
+    try {
+      const saved = localStorage.getItem('metrology_notifications');
+      return saved ? JSON.parse(saved) : DEFAULT_NOTIFICATIONS;
+    } catch {
+      return DEFAULT_NOTIFICATIONS;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('metrology_notifications', JSON.stringify(notifications));
+    } catch (e) {
+      console.warn('Failed to persist notifications:', e);
+    }
+  }, [notifications]);
+
   const addNotification = (newNotif) => {
     const formatted = {
       id: `notif-dyn-${Date.now()}`,
@@ -438,7 +462,7 @@ export const AuthProvider = ({ children }) => {
       message: newNotif.message,
       timestamp: 'Just now',
       read: false,
-      targetRole: newNotif.targetRole || ['inspector', 'reviewer', 'admin'],
+      targetRole: Array.isArray(newNotif.targetRole) ? newNotif.targetRole : [newNotif.targetRole || 'inspector'],
       jurisdiction: newNotif.jurisdiction || selectedLocation?.label || 'all',
       category: newNotif.category || 'field_task',
       sender: newNotif.sender || user?.full_name || 'System Grid',
@@ -457,14 +481,18 @@ export const AuthProvider = ({ children }) => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
   };
 
-  // Dynamic Role & Jurisdiction Filtered Notifications
-  const currentRole = user?.role === 'citizen' ? 'customer' : (user?.role || 'inspector');
-  const activeJurisdiction = selectedLocation?.label || user?.jurisdiction || 'Delhi NCR (North Zone)';
+  const removeNotification = (id) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  const clearAllNotifications = () => {
+    setNotifications([]);
+  };
 
   const filteredNotifications = notifications.filter(n => {
     // 1. Role match
-    const roleMatches = n.targetRole.includes(currentRole) || 
-      (currentRole === 'customer' && n.targetRole.includes('citizen')) ||
+    const roleMatches = (n.targetRole || []).includes(currentRole) || 
+      (currentRole === 'customer' && (n.targetRole || []).includes('citizen')) ||
       (currentRole === 'admin'); // Admins can monitor everything
 
     if (!roleMatches) return false;
@@ -476,8 +504,8 @@ export const AuthProvider = ({ children }) => {
 
     // Direct or fuzzy region match (e.g. "Delhi NCR" matches "Delhi NCR (North Zone)")
     const cleanActiveLoc = activeJurisdiction.split('(')[0].trim().toLowerCase();
-    const cleanNotifLoc = n.jurisdiction.split('(')[0].trim().toLowerCase();
-    return cleanActiveLoc === cleanNotifLoc || cleanNotifLoc.includes(cleanActiveLoc) || cleanActiveLoc.includes(cleanNotifLoc);
+    const cleanNotifLoc = (n.jurisdiction || 'all').split('(')[0].trim().toLowerCase();
+    return cleanActiveLoc === cleanNotifLoc || cleanNotifLoc.includes(cleanActiveLoc) || cleanActiveLoc.includes(cleanNotifLoc) || cleanNotifLoc === 'all';
   });
 
   return (
@@ -502,12 +530,19 @@ export const AuthProvider = ({ children }) => {
         addNotification,
         markNotificationAsRead,
         markAllNotificationsAsRead,
+        removeNotification,
+        clearAllNotifications,
         isLoginModalOpen,
         setIsLoginModalOpen,
         isHelpModalOpen,
-        setIsHelpModalOpen
+        setIsHelpModalOpen,
+        isFeedbackModalOpen,
+        setIsFeedbackModalOpen,
+        isSettingsModalOpen,
+        setIsSettingsModalOpen
       }}
     >
+
       {children}
     </AuthContext.Provider>
   );

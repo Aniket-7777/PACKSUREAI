@@ -26,20 +26,43 @@ import {
 } from 'lucide-react';
 
 export const AdminCommandCenter = () => {
-  const { user, selectedLocation, selectedDateRange } = useAuth();
+  const { user, selectedLocation, selectedDateRange, addNotification } = useAuth();
   const [systemStats, setSystemStats] = useState({
     totalUsers: 14,
     activeRules: 12,
     databaseStatus: 'Online (Neon PostgreSQL Serverless)',
-    modelEngine: 'Gemini 2.0 Flash + EasyOCR Dual-Track',
+    modelEngine: 'Gemini 3.6 Flash + EasyOCR Dual-Track',
     ocrAccuracy: '98.4%',
-    totalAudits: 1248,
-    complianceIndex: '81.6%',
-    penaltiesRecovered: '₹48.6 Lakhs'
+    totalAudits: 24,
+    complianceIndex: '83.2%',
+    penaltiesRecovered: '₹5.4 Lakhs'
   });
 
   const [crawlerRunning, setCrawlerRunning] = useState(false);
   const [crawlerResult, setCrawlerResult] = useState('');
+
+  useEffect(() => {
+    fetchAdminMetrics();
+  }, [selectedLocation, selectedDateRange]);
+
+  const fetchAdminMetrics = async () => {
+    try {
+      const locId = selectedLocation?.label || selectedLocation?.id || '';
+      const dateId = selectedDateRange?.id || 'all';
+      const res = await fetch(`/api/v1/analytics/summary?location=${encodeURIComponent(locId)}&date_range=${encodeURIComponent(dateId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSystemStats(prev => ({
+          ...prev,
+          totalAudits: data.total_scans_conducted || 24,
+          complianceIndex: `${data.national_average_compliance_rate || 82.5}%`,
+          penaltiesRecovered: `₹${((data.estimated_penalties_inr || 0) / 100000).toFixed(1)} Lakhs`
+        }));
+      }
+    } catch (e) {
+      console.warn('Error loading admin analytics:', e);
+    }
+  };
 
   const handleRunCrawler = () => {
     setCrawlerRunning(true);
@@ -47,8 +70,21 @@ export const AdminCommandCenter = () => {
     setTimeout(() => {
       setCrawlerRunning(false);
       setCrawlerResult('Surveillance Crawler complete: 48 quick-commerce listings scanned across Blinkit & Amazon. 6 non-compliances flagged under Rule 6(10).');
+      if (addNotification) {
+        addNotification({
+          type: 'critical',
+          title: 'E-Commerce Crawler Breaches Detected',
+          message: '6 digital listings on Blinkit/Amazon flagged missing Unit Sale Price under Rule 6(10).',
+          targetRole: ['admin', 'reviewer'],
+          jurisdiction: selectedLocation?.label || 'all',
+          category: 'admin_surveillance',
+          sender: 'E-Commerce Surveillance Engine',
+          actionLink: '/ecommerce-audit'
+        });
+      }
     }, 2000);
   };
+
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">

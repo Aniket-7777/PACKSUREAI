@@ -21,30 +21,32 @@ export function App() {
   return (
     <AuthProvider>
       <Router>
-        <div className="min-h-screen bg-sky-50/70 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col selection:bg-sky-500 selection:text-white transition-colors duration-200">
-          <Navbar />
-          
-          <div className="flex-1 flex overflow-hidden">
-            <Sidebar />
-            <main className="flex-1 overflow-y-auto pb-16 lg:pb-6">
-              <ErrorBoundary>
-                <Routes>
-                  <Route path="/" element={<HomeDashboard />} />
-                  <Route path="/scan" element={<ScanProductPage />} />
-                  <Route path="/review-queue" element={<ReviewQueuePage />} />
-                  <Route path="/products" element={<ProductRepositoryPage />} />
-                  <Route path="/violations" element={<ViolationsDashboardPage />} />
-                  <Route path="/reports" element={<ReportsDashboardPage />} />
-                  <Route path="/ecommerce-audit" element={<EcommerceAuditPage />} />
-                  <Route path="/rules" element={<RuleManagementPage />} />
-                  <Route path="/ai-accuracy" element={<AiAccuracyDashboardPage />} />
-                  <Route path="/audit-logs" element={<AuditLogsPage />} />
-                  <Route path="/citizen-portal" element={<CitizenPortal />} />
-                  <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
-              </ErrorBoundary>
-            </main>
-          </div>
+        <ErrorBoundary>
+          <div className="min-h-screen bg-sky-50/70 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col selection:bg-sky-500 selection:text-white transition-colors duration-200">
+            <Navbar />
+            
+            <div className="flex-1 flex overflow-hidden">
+              <Sidebar />
+              <main className="flex-1 overflow-y-auto pb-16 lg:pb-6">
+                <ErrorBoundary>
+                  <Routes>
+                    <Route path="/" element={<HomeDashboard />} />
+                    <Route path="/scan" element={<ScanProductPage />} />
+                    <Route path="/review-queue" element={<ReviewQueuePage />} />
+                    <Route path="/products" element={<ProductRepositoryPage />} />
+                    <Route path="/violations" element={<ViolationsDashboardPage />} />
+                    <Route path="/reports" element={<ReportsDashboardPage />} />
+                    <Route path="/ecommerce-audit" element={<EcommerceAuditPage />} />
+                    <Route path="/rules" element={<RuleManagementPage />} />
+                    <Route path="/ai-accuracy" element={<AiAccuracyDashboardPage />} />
+                    <Route path="/audit-logs" element={<AuditLogsPage />} />
+                    <Route path="/citizen-portal" element={<CitizenPortal />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Routes>
+                </ErrorBoundary>
+              </main>
+            </div>
+
           
           {/* Footer */}
           <footer className="border-t border-sky-200/80 dark:border-slate-800/80 bg-sky-100/50 dark:bg-slate-950/80 py-3 text-center text-xs text-slate-600 dark:text-slate-500 hidden lg:block">
@@ -58,9 +60,11 @@ export function App() {
             </div>
           </footer>
         </div>
+        </ErrorBoundary>
       </Router>
     </AuthProvider>
   );
 }
+
 
 export default App;

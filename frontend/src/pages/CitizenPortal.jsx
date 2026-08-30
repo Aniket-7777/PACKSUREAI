@@ -11,18 +11,24 @@ import {
   Check, 
   Sparkles,
   Barcode,
-  Search
+  Search,
+  Printer
 } from 'lucide-react';
 import { BarcodeScannerModal } from '../components/BarcodeScannerModal';
+import { InspectionReportModal } from '../components/InspectionReportModal';
+import { useAuth } from '../context/AuthContext';
 
 export const CitizenPortal = () => {
+  const { user, token } = useAuth();
   const [photo, setPhoto] = useState(null);
+
   const [photoPreview, setPhotoPreview] = useState(null);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState(null);
   const [grievanceSent, setGrievanceSent] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   const handlePhotoSelect = (e) => {
     const file = e.target.files[0];
@@ -48,10 +54,28 @@ export const CitizenPortal = () => {
         if (barcodeInput) formData.append('barcode', barcodeInput);
         formData.append('category', 'Food & Grocery');
 
+        if (user) {
+          if (user.id) formData.append('inspector_id', user.id);
+          if (user.full_name) formData.append('inspector_name', user.full_name);
+          if (user.badge_number) formData.append('inspector_badge', user.badge_number);
+          if (user.username) formData.append('inspector_username', user.username);
+        }
+
+        const savedKey = localStorage.getItem('gemini_api_key');
+        if (savedKey) formData.append('api_key', savedKey);
+
+        const headers = {};
+        const activeToken = token || localStorage.getItem('token');
+        if (activeToken) {
+          headers['Authorization'] = `Bearer ${activeToken}`;
+        }
+
         const res = await fetch('/api/v1/scans/process-packaging', {
           method: 'POST',
+          headers,
           body: formData
         });
+
         if (res.ok) {
           const data = await res.json();
           setScanResult(data);
@@ -224,34 +248,33 @@ export const CitizenPortal = () => {
             </div>
           </div>
 
-          {/* 1-Click INGRAM Consumer Grievance Dispatch */}
-          <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl space-y-3">
-            <div className="flex items-center gap-2 text-red-700 dark:text-red-400 font-bold text-xs">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span>Suspected Legal Metrology Violation Detected on this Item</span>
-            </div>
-            <p className="text-xs text-slate-700 dark:text-slate-300">
-              This package fails mandatory consumer transparency standards. You have the legal right under the Consumer Protection Act, 2019 to report this listing.
-            </p>
+          {/* Action Row: INGRAM Grievance & Download Official Report */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
+            <button
+              onClick={() => setIsReportModalOpen(true)}
+              className="px-4 py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Download Official Report / Certificate (PDF)</span>
+            </button>
 
             {grievanceSent ? (
-              <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-lg text-emerald-800 dark:text-emerald-300 text-xs font-bold flex items-center gap-2">
+              <div className="p-2.5 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-emerald-800 dark:text-emerald-300 text-xs font-bold flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>Grievance docket #NCH-2026-8891 dispatched to DoCA Consumer Helpline!</span>
+                <span>Grievance #NCH-2026-8891 dispatched!</span>
               </div>
             ) : (
               <button
                 onClick={() => setGrievanceSent(true)}
-                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5"
+                className="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
               >
                 <MessageSquare className="w-4 h-4" />
-                <span>File Instant Complaint to National Consumer Helpline (INGRAM)</span>
+                <span>File Consumer Grievance (INGRAM)</span>
               </button>
             )}
           </div>
         </div>
       )}
-
 
       {/* Barcode Scanner Modal */}
       <BarcodeScannerModal
@@ -260,8 +283,22 @@ export const CitizenPortal = () => {
         initialBarcode={barcodeInput}
         onBarcodeScanned={(code) => setBarcodeInput(code)}
       />
+
+      {/* Statutory Inspection & Compliance Report Modal */}
+      {isReportModalOpen && scanResult && (
+        <InspectionReportModal
+          isOpen={isReportModalOpen}
+          scanData={{
+            ...scanResult,
+            front_image_url: photoPreview || scanResult.front_image_url
+          }}
+          onClose={() => setIsReportModalOpen(false)}
+        />
+      )}
+
     </div>
   );
 };
+
 
 

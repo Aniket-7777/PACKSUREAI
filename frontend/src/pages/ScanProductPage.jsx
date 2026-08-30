@@ -25,22 +25,28 @@ import {
   Download,
   Building2,
   XCircle,
-  FileCheck
+  FileCheck,
+  Printer
 } from 'lucide-react';
 import { VisualEvidenceViewer } from '../components/VisualEvidenceViewer';
 import { HitlReviewPanel } from '../components/HitlReviewPanel';
 import { ExplainabilityCard } from '../components/ExplainabilityCard';
 import { LegalNoticeModal } from '../components/LegalNoticeModal';
 import { BarcodeScannerModal } from '../components/BarcodeScannerModal';
+import { InspectionReportModal } from '../components/InspectionReportModal';
+import { useAuth } from '../context/AuthContext';
 
 export const ScanProductPage = () => {
+  const { user, token, addNotification } = useAuth();
   const [searchParams] = useSearchParams();
   const initialScanId = searchParams.get('id');
+
+
 
   // Step State (1: Capture, 2: Quality, 3: Extraction Table, 4: Compliance, 5: Evidence & Action)
   const [currentStep, setCurrentStep] = useState(1);
 
-  // Uploaded Files & Previews
+  // Form State
   const [frontImage, setFrontImage] = useState(null);
   const [backImage, setBackImage] = useState(null);
   const [sideImage, setSideImage] = useState(null);
@@ -64,7 +70,9 @@ export const ScanProductPage = () => {
   const [scanResult, setScanResult] = useState(null);
   const [selectedFieldKey, setSelectedFieldKey] = useState('mrp');
   const [isNoticeModalOpen, setIsNoticeModalOpen] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [inlineEditField, setInlineEditField] = useState(null);
+
   const [editValue, setEditValue] = useState('');
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
   const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
@@ -146,14 +154,45 @@ export const ScanProductPage = () => {
         formData.append('api_key', savedKey);
       }
 
+      // Explicitly append active inspector identity
+      if (user) {
+        if (user.id) formData.append('inspector_id', user.id);
+        if (user.full_name) formData.append('inspector_name', user.full_name);
+        if (user.badge_number) formData.append('inspector_badge', user.badge_number);
+        if (user.username) formData.append('inspector_username', user.username);
+      }
+
+      const headers = {};
+      const activeToken = token || localStorage.getItem('token');
+      if (activeToken) {
+        headers['Authorization'] = `Bearer ${activeToken}`;
+      }
+
       const res = await fetch('/api/v1/scans/process-packaging', {
         method: 'POST',
+        headers,
         body: formData,
       });
+
 
       if (res.ok) {
         const data = await res.json();
         setScanResult(data);
+        
+        // Dispatch real-time operational notification if violations exist
+        if (addNotification && data.violations && data.violations.length > 0) {
+          addNotification({
+            type: (data.risk_score || 0) > 60 ? 'critical' : 'warning',
+            title: `Compliance Flag: ${data.product_name || 'Commodity'}`,
+            message: `${data.violations.length} statutory breaches flagged for ${data.brand_name || 'Commodity'}. Risk Index: ${data.risk_score || 70} PRI.`,
+            targetRole: ['inspector', 'reviewer', 'admin'],
+            jurisdiction: user?.jurisdiction || 'Delhi NCR (North Zone)',
+            category: 'field_task',
+            sender: user?.full_name || 'Inspector Command Center',
+            actionLink: '/review-queue'
+          });
+        }
+
         // If quality warnings exist, move to Step 2, else jump to Step 3
         if (data.quality_warnings && data.quality_warnings.length > 0) {
           setCurrentStep(2);
@@ -161,6 +200,7 @@ export const ScanProductPage = () => {
           setCurrentStep(3);
         }
       } else {
+
         const err = await res.json();
         alert(`Audit processing failed: ${err.detail || 'Server error'}`);
       }
@@ -735,8 +775,8 @@ export const ScanProductPage = () => {
                 </h2>
               </div>
 
-              {/* 3-State Verdict Banner */}
-              <div className="flex items-center gap-3">
+              {/* 3-State Verdict Banner & Action Buttons */}
+              <div className="flex items-center gap-3 flex-wrap">
                 <div className={`px-4 py-2 rounded-xl text-center font-bold text-xs border ${
                   getComplianceState() === 'Compliant'
                     ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30'
@@ -748,14 +788,25 @@ export const ScanProductPage = () => {
                   <div className="text-sm font-extrabold">{getComplianceState()}</div>
                 </div>
 
-                <button
-                  onClick={() => setCurrentStep(5)}
-                  className="px-4 py-2.5 bg-sky-600 dark:bg-amber-500 hover:bg-sky-700 text-white dark:text-slate-950 font-bold rounded-xl text-xs shadow-md flex items-center gap-1.5"
-                >
-                  Evidence & Legal Notice <ChevronRight className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsReportModalOpen(true)}
+                    className="px-3.5 py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-xs shadow-md flex items-center gap-1.5 transition-all"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Official Report / Certificate (PDF)</span>
+                  </button>
+                  <button
+                    onClick={() => setCurrentStep(5)}
+                    className="px-4 py-2 bg-slate-900 dark:bg-amber-500 hover:bg-slate-800 text-white dark:text-slate-950 font-bold rounded-xl text-xs shadow-md flex items-center gap-1.5"
+                  >
+                    Evidence & Action <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
+
+
 
             {/* Score & Violation Summary Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -824,15 +875,25 @@ export const ScanProductPage = () => {
                 </p>
               </div>
 
-              {scanResult.violations && scanResult.violations.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
-                  onClick={() => setIsNoticeModalOpen(true)}
-                  className="px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-red-600/30 flex items-center gap-2 transition-all"
+                  onClick={() => setIsReportModalOpen(true)}
+                  className="px-4 py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-xs shadow-md flex items-center gap-1.5 transition-all"
                 >
-                  <Scale className="w-4 h-4" />
-                  Generate Section 36 Show-Cause Notice (PDF)
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Official Report / Certificate (PDF)</span>
                 </button>
-              )}
+
+                {scanResult.violations && scanResult.violations.length > 0 && (
+                  <button
+                    onClick={() => setIsNoticeModalOpen(true)}
+                    className="px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-red-600/30 flex items-center gap-2 transition-all"
+                  >
+                    <Scale className="w-4 h-4" />
+                    Generate Section 36 Notice
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Evidence Audit Trail Card */}
@@ -852,7 +913,7 @@ export const ScanProductPage = () => {
                 </div>
                 <div>
                   <span className="text-slate-500 text-[11px]">Inspector Badge ID:</span>
-                  <div className="font-mono text-slate-900 dark:text-slate-100">DOCA-INSP-104</div>
+                  <div className="font-mono text-slate-900 dark:text-slate-100">{scanResult.inspector_badge || user?.badge_number || 'DOCA-INSP-2026'}</div>
                 </div>
                 <div>
                   <span className="text-slate-500 text-[11px]">Enforcement Authority:</span>
@@ -874,6 +935,20 @@ export const ScanProductPage = () => {
         </div>
       )}
 
+      {/* Statutory Inspection & Compliance Report Modal */}
+      {isReportModalOpen && scanResult && (
+        <InspectionReportModal
+          isOpen={isReportModalOpen}
+          scanData={{
+            ...scanResult,
+            front_image_url: frontPreview || scanResult.front_image_url,
+            back_image_url: backPreview || scanResult.back_image_url
+          }}
+          onClose={() => setIsReportModalOpen(false)}
+        />
+      )}
+
+
       {/* Legal Notice Modal */}
       {isNoticeModalOpen && scanResult && (
         <LegalNoticeModal
@@ -887,6 +962,7 @@ export const ScanProductPage = () => {
           onClose={() => setIsNoticeModalOpen(false)}
         />
       )}
+
 
       {/* Gemini Vision API Key Configuration Modal */}
       {isApiKeyModalOpen && (

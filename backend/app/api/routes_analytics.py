@@ -1,34 +1,72 @@
-from fastapi import APIRouter, Depends
+import datetime
+from typing import Optional
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.core.database import get_db
-from app.models.entities import Scan, Violation, Inspection
+from app.models.entities import Scan, Violation, Inspection, User
 
 router = APIRouter(prefix="/analytics", tags=["National Enforcement Analytics"])
 
-@router.get("/summary")
-def get_analytics_summary(db: Session = Depends(get_db), location: str = None):
+from app.core.date_utils import parse_date_range
 
-    total_scans = db.query(Scan).count()
-    total_violations = db.query(Violation).count()
-    notices_issued = db.query(Inspection).filter(Inspection.legal_notice_issued == True).count()
-    
-    avg_compliance = db.query(func.avg(Scan.overall_compliance_score)).scalar() or 82.5
-    
+def _get_location_user_ids(db: Session, location: Optional[str]) -> Optional[list]:
+    if not location or location in ["all", "All Jurisdictions (Pan-India)"]:
+        return None
+    loc_clean = location.split("(")[0].strip().lower()
+    users = db.query(User).all()
+    matched = [u.id for u in users if loc_clean in (u.department or "").lower() or loc_clean in (u.full_name or "").lower()]
+    return matched if matched else None
+
+@router.get("/summary")
+def get_analytics_summary(
+    db: Session = Depends(get_db), 
+    location: Optional[str] = Query(None),
+    date_range: Optional[str] = Query(None)
+):
+    start_d, end_d = parse_date_range(date_range)
+    user_ids = _get_location_user_ids(db, location)
+
+    scan_query = db.query(Scan)
+    if start_d:
+        scan_query = scan_query.filter(Scan.created_at >= start_d)
+    if end_d:
+        scan_query = scan_query.filter(Scan.created_at <= end_d)
+    if user_ids is not None:
+        scan_query = scan_query.filter(Scan.created_by_user_id.in_(user_ids))
+
+    scans = scan_query.all()
+    scan_ids = [s.id for s in scans]
+    total_scans = len(scans)
+
+    if scan_ids:
+        total_violations = db.query(Violation).filter(Violation.scan_id.in_(scan_ids)).count()
+        notices_issued = db.query(Inspection).filter(Inspection.scan_id.in_(scan_ids), Inspection.legal_notice_issued == True).count()
+        avg_compliance = db.query(func.avg(Scan.overall_compliance_score)).filter(Scan.id.in_(scan_ids)).scalar() or 82.5
+    else:
+        total_violations = 0
+        notices_issued = 0
+        avg_compliance = 85.0
+
     # Common Violations Breakdown
-    violations_by_rule = db.query(
-        Violation.rule_title,
-        func.count(Violation.id).label("count")
-    ).group_by(Violation.rule_title).order_by(func.count(Violation.id).desc()).limit(6).all()
+    if scan_ids:
+        violations_by_rule = db.query(
+            Violation.rule_title,
+            func.count(Violation.id).label("count")
+        ).filter(Violation.scan_id.in_(scan_ids)).group_by(Violation.rule_title).order_by(func.count(Violation.id).desc()).limit(6).all()
+    else:
+        violations_by_rule = []
     
-    # High Risk Brands
-    high_risk_cases = db.query(Scan).order_by(Scan.risk_score.desc()).limit(5).all()
+    # High Risk Cases
+    high_risk_cases = [s for s in sorted(scans, key=lambda x: (x.risk_score or 0), reverse=True)[:5]]
     
     # Category Distribution
-    cat_dist = db.query(
-        Scan.category,
-        func.count(Scan.id).label("count")
-    ).group_by(Scan.category).all()
+    cat_counts = {}
+    for s in scans:
+        cat = s.category or "Packaged Commodities"
+        cat_counts[cat] = cat_counts.get(cat, 0) + 1
+    cat_dist = [{"category": k, "count": v} for k, v in cat_counts.items()]
+
     
     return {
         "total_scans_conducted": total_scans,
@@ -59,16 +97,14 @@ def get_analytics_summary(db: Session = Depends(get_db), location: str = None):
             {"brand": "PureGlow Herbals", "product": "Ayurvedic Skin Clarifying Cream", "risk_score": 82.0, "compliance": 50.0},
             {"brand": "Patanjali Ayurved", "product": "Herbal Wash Detergent Cake", "risk_score": 64.0, "compliance": 70.0}
         ],
-        "category_distribution": [
-            {"category": c[0], "count": c[1]}
-            for c in cat_dist
-        ] if cat_dist else [
+        "category_distribution": cat_dist if cat_dist else [
             {"category": "Food & Grocery", "count": 140},
             {"category": "Personal Care & Cosmetics", "count": 65},
             {"category": "Dairy & Beverages", "count": 52},
             {"category": "Packaged Commodities", "count": 38}
         ]
     }
+
 
 
 @router.get("/repeat-offenders")

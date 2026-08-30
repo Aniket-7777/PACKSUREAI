@@ -13,26 +13,32 @@ import {
   History,
   TrendingUp,
   RefreshCw,
-  Camera
+  Camera,
+  Printer
 } from 'lucide-react';
 import { BarcodeScannerModal } from '../components/BarcodeScannerModal';
+import { InspectionReportModal } from '../components/InspectionReportModal';
+import { useAuth } from '../context/AuthContext';
 
 export const ProductRepositoryPage = () => {
+  const { selectedLocation, selectedDateRange } = useAuth();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
-
+  const [selectedReportProduct, setSelectedReportProduct] = useState(null);
 
   useEffect(() => {
     fetchScannedProducts();
-  }, []);
+  }, [selectedLocation, selectedDateRange]);
 
   const fetchScannedProducts = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/v1/scans/');
+      const locId = selectedLocation?.label || selectedLocation?.id || '';
+      const dateId = selectedDateRange?.id || 'all';
+      const res = await fetch(`/api/v1/scans/?location=${encodeURIComponent(locId)}&date_range=${encodeURIComponent(dateId)}`);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
@@ -40,6 +46,7 @@ export const ProductRepositoryPage = () => {
           return;
         }
       }
+
       // Default initial baseline if database is empty
       setProducts([
         {
@@ -243,14 +250,22 @@ export const ProductRepositoryPage = () => {
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-sky-100 dark:border-slate-800 text-xs">
-              <span className="text-[11px] text-slate-500 flex items-center gap-1">
-                <Calendar className="w-3.5 h-3.5 text-slate-400" /> Inspected: {p.last_inspected}
-              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedReportProduct(p)}
+                className="px-2.5 py-1.5 bg-sky-100 hover:bg-sky-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-sky-900 dark:text-amber-400 font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors"
+                title="Export Statutory Compliance Dossier"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>PDF Dossier</span>
+              </button>
+
               <Link
                 to={`/scan?id=${p.id}`}
                 className="text-sky-700 dark:text-amber-400 font-bold hover:underline flex items-center gap-0.5 text-xs"
               >
-                Scan History & Evidence <ChevronRight className="w-3.5 h-3.5" />
+                <span>Audit Trail</span>
+                <ChevronRight className="w-3.5 h-3.5" />
               </Link>
             </div>
           </div>
@@ -264,9 +279,19 @@ export const ProductRepositoryPage = () => {
         initialBarcode={searchQuery}
         onBarcodeScanned={(code) => setSearchQuery(code)}
       />
+
+      {/* Statutory Inspection & Compliance Report Modal */}
+      {selectedReportProduct && (
+        <InspectionReportModal
+          isOpen={Boolean(selectedReportProduct)}
+          product={selectedReportProduct}
+          onClose={() => setSelectedReportProduct(null)}
+        />
+      )}
     </div>
   );
 };
+
 
 
 

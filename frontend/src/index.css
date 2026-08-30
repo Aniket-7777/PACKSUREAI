@@ -44,3 +44,78 @@
 .dark ::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
+
+/* Formal Legal Metrology Report Print Isolation */
+@media print {
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* 1. HIDE ALL ROOT APPLICATION PAGES, DASHBOARDS, PRODUCT PHOTOS, UPLOAD PREVIEWS, SIDEBARS, AND NAV */
+  #root {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* 2. PRINT ONLY THE STATUTORY REPORT PORTAL MOUNTED ON DOCUMENT.BODY */
+  .statutory-report-modal-portal {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: none !important;
+    overflow: visible !important;
+  }
+
+  .statutory-report-modal-portal > div {
+    max-height: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* 3. STRICTLY HIDE ALL ACTION TOOLBARS, BUTTONS, AND FOOTERS */
+  .no-print,
+  .no-print * {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* 4. CLEAN PRINT DOCUMENT STYLING */
+  .print-clean-document {
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+  }
+
+  .print-page-break-avoid {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 10mm 12mm;
+  }
+}
+
+

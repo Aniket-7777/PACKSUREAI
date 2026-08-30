@@ -13,15 +13,19 @@ import {
   Upload, 
   AlertCircle,
   ExternalLink,
-  ShieldCheck
+  ShieldCheck,
+  Package
 } from 'lucide-react';
+import { BrowserMultiFormatReader, BarcodeFormat, DecodeHintType } from '@zxing/library';
 
 const SAMPLE_INDIAN_BARCODES = [
-  { code: '8901030383842', name: 'Tata Salt (1 kg)', brand: 'Tata Consumer', cat: 'Food & Grocery' },
-  { code: '8901491101837', name: 'Maggi 2-Min Noodles (70g)', brand: 'Nestle India', cat: 'Instant Foods' },
-  { code: '8901262010053', name: 'Amul Butter (500g)', brand: 'Amul Dairy', cat: 'Dairy' },
-  { code: '8901063012016', name: 'Good Day Cookies (100g)', brand: 'Britannia', cat: 'Bakery' },
-  { code: '8902579100124', name: 'Dabur 100% Pure Honey (250g)', brand: 'Dabur India', cat: 'Food & Grocery' }
+  { code: '8901030992147', name: "Haldiram's Lite Mixture (85g)", brand: "Haldiram's", cat: 'Snacks & Namkeen' },
+  { code: '8901030383842', name: 'Tata Salt Vacuum Evaporated (1 kg)', brand: 'Tata Consumer', cat: 'Food & Grocery' },
+  { code: '8901491101837', name: 'Maggi 2-Minute Masala Noodles (70g)', brand: 'Nestle India', cat: 'Instant Foods' },
+  { code: '8901262010053', name: 'Amul Pasteurised Butter (500g)', brand: 'Amul Dairy', cat: 'Dairy & Spreads' },
+  { code: '8901063012016', name: 'Britannia Good Day Butter Cookies (100g)', brand: 'Britannia', cat: 'Bakery & Biscuits' },
+  { code: '8902579100124', name: 'Dabur 100% Pure Squeezy Honey (250g)', brand: 'Dabur India', cat: 'Food & Grocery' },
+  { code: '8901030678237', name: 'Lipton Clear & Green Pure Light Tea (25 Bags)', brand: 'Lipton / Unilever', cat: 'Beverages' }
 ];
 
 export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initialBarcode = '' }) => {
@@ -34,25 +38,29 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupResult, setLookupResult] = useState(null);
   const [torchOn, setTorchOn] = useState(false);
+  const [isDecoding, setIsDecoding] = useState(false);
 
   const videoRef = useRef(null);
-  const canvasRef = useRef(null);
+  const codeReaderRef = useRef(null);
   const streamRef = useRef(null);
   const scanIntervalRef = useRef(null);
 
   useEffect(() => {
     setBarcodeInput(initialBarcode);
     setLookupResult(null);
+    if (initialBarcode && isOpen) {
+      fetchBarcodeDetails(initialBarcode);
+    }
   }, [initialBarcode, isOpen]);
 
   // Handle Camera Lifecycle
   useEffect(() => {
     if (isOpen && activeTab === 'camera') {
-      startCamera();
+      startZXingScanner();
     } else {
-      stopCamera();
+      stopScanner();
     }
-    return () => stopCamera();
+    return () => stopScanner();
   }, [isOpen, activeTab, facingMode]);
 
   // Synthesize Audio Beep
@@ -75,12 +83,27 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
     }
   };
 
-  const startCamera = async () => {
+  const startZXingScanner = async () => {
     setCameraError('');
     setCameraActive(false);
-    stopCamera();
+    stopScanner();
 
     try {
+      const hints = new Map();
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+        BarcodeFormat.EAN_13,
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.UPC_A,
+        BarcodeFormat.UPC_E,
+        BarcodeFormat.CODE_128,
+        BarcodeFormat.CODE_39,
+        BarcodeFormat.QR_CODE
+      ]);
+      hints.set(DecodeHintType.TRY_HARDER, true);
+
+      const codeReader = new BrowserMultiFormatReader(hints, 300);
+      codeReaderRef.current = codeReader;
+
       const constraints = {
         video: {
           facingMode: { ideal: facingMode },
@@ -88,21 +111,78 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
           height: { ideal: 720 }
         }
       };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+      if (videoRef.current) {
+        setIsDecoding(true);
+        codeReader.decodeFromConstraints(constraints, videoRef.current, (result, err) => {
+          if (result) {
+            const scannedText = result.getText();
+            if (scannedText && scannedText.trim()) {
+              handleSuccessfulScan(scannedText.trim());
+            }
+          }
+        }).then(() => {
+          setCameraActive(true);
+          // Grab stream for torch support
+          if (videoRef.current && videoRef.current.srcObject) {
+            streamRef.current = videoRef.current.srcObject;
+          }
+        }).catch((err) => {
+          console.warn('ZXing Camera Access Failed, fallback to native getUserMedia:', err);
+          startNativeFallback();
+        });
+      }
+    } catch (err) {
+      console.warn('Camera initialization error:', err);
+      startNativeFallback();
+    }
+  };
+
+  const startNativeFallback = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: facingMode } }
+      });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.play();
         setCameraActive(true);
-        startBarcodeDetectionLoop();
+        startNativeBarcodeLoop();
       }
-    } catch (err) {
-      console.warn('Camera access error:', err);
+    } catch (e) {
       setCameraError('Camera access unavailable or permission denied. You can manually enter or select a test barcode below.');
+      setCameraActive(false);
     }
   };
 
-  const stopCamera = () => {
+  const startNativeBarcodeLoop = () => {
+    if ('BarcodeDetector' in window) {
+      try {
+        const barcodeDetector = new window.BarcodeDetector({
+          formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'qr_code']
+        });
+        scanIntervalRef.current = setInterval(async () => {
+          if (videoRef.current && videoRef.current.readyState === 4) {
+            try {
+              const barcodes = await barcodeDetector.detect(videoRef.current);
+              if (barcodes && barcodes.length > 0) {
+                handleSuccessfulScan(barcodes[0].rawValue);
+              }
+            } catch (err) {}
+          }
+        }, 300);
+      } catch (e) {}
+    }
+  };
+
+  const stopScanner = () => {
+    if (codeReaderRef.current) {
+      try {
+        codeReaderRef.current.reset();
+      } catch (e) {}
+      codeReaderRef.current = null;
+    }
     if (scanIntervalRef.current) {
       clearInterval(scanIntervalRef.current);
       scanIntervalRef.current = null;
@@ -112,6 +192,7 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
       streamRef.current = null;
     }
     setCameraActive(false);
+    setIsDecoding(false);
   };
 
   const toggleTorch = () => {
@@ -126,37 +207,10 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
     }
   };
 
-  // Optical Barcode Detection Loop
-  const startBarcodeDetectionLoop = () => {
-    if ('BarcodeDetector' in window) {
-      try {
-        const barcodeDetector = new window.BarcodeDetector({
-          formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'qr_code']
-        });
-
-        scanIntervalRef.current = setInterval(async () => {
-          if (videoRef.current && videoRef.current.readyState === 4) {
-            try {
-              const barcodes = await barcodeDetector.detect(videoRef.current);
-              if (barcodes && barcodes.length > 0) {
-                const detected = barcodes[0].rawValue;
-                handleSuccessfulScan(detected);
-              }
-            } catch (detectErr) {
-              // Frame dropped, continue loop
-            }
-          }
-        }, 300);
-      } catch (e) {
-        console.info('BarcodeDetector init fallback');
-      }
-    }
-  };
-
   const handleSuccessfulScan = async (code) => {
     playBeep();
     setBarcodeInput(code);
-    stopCamera();
+    stopScanner();
     await fetchBarcodeDetails(code);
   };
 
@@ -188,28 +242,41 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Simulate scanning or image load
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = async () => {
-        if ('BarcodeDetector' in window) {
+    reader.onload = async (event) => {
+      try {
+        const codeReader = new BrowserMultiFormatReader();
+        const img = new Image();
+        img.onload = async () => {
           try {
-            const detector = new window.BarcodeDetector({ formats: ['ean_13', 'upc_a', 'code_128'] });
-            const detected = await detector.detect(img);
-            if (detected && detected.length > 0) {
-              handleSuccessfulScan(detected[0].rawValue);
+            const result = await codeReader.decodeFromImageElement(img);
+            if (result && result.getText()) {
+              handleSuccessfulScan(result.getText().trim());
               return;
             }
-          } catch (err) {}
-        }
-        // Fallback sample detection for demo
-        handleSuccessfulScan('8901030383842');
-      };
-      img.src = event.target.result;
+          } catch (zxingErr) {
+            // If ZXing didn't catch, try native BarcodeDetector if available
+            if ('BarcodeDetector' in window) {
+              try {
+                const detector = new window.BarcodeDetector({ formats: ['ean_13', 'upc_a', 'code_128', 'qr_code'] });
+                const detected = await detector.detect(img);
+                if (detected && detected.length > 0) {
+                  handleSuccessfulScan(detected[0].rawValue);
+                  return;
+                }
+              } catch (err) {}
+            }
+            alert('Could not decode a clear barcode in this photo. Please enter the EAN number manually or choose a preset.');
+          }
+        };
+        img.src = event.target.result;
+      } catch (err) {
+        console.warn('Upload decode error:', err);
+      }
     };
     reader.readAsDataURL(file);
   };
+
 
   if (!isOpen) return null;
 
@@ -328,11 +395,12 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
                     <p className="text-xs">{cameraError || 'Initializing Camera Feed...'}</p>
                     <button
                       type="button"
-                      onClick={startCamera}
+                      onClick={startZXingScanner}
                       className="px-3 py-1 bg-sky-600 text-white rounded-xl text-xs font-semibold"
                     >
                       Try Again
                     </button>
+
                   </div>
                 )}
 
