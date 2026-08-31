@@ -121,3 +121,108 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         }
     }
 
+
+class UserCreateOrUpdateRequest(BaseModel):
+    id: int | None = None
+    username: str
+    email: str | None = None
+    full_name: str
+    role: str = "inspector"  # admin, inspector, reviewer, customer/citizen
+    badge_number: str | None = None
+    department: str | None = None
+    password: str | None = None
+
+
+@router.get("/users")
+def list_users(db: Session = Depends(get_db)):
+    """
+    Returns live list of all registered enforcement officers and platform users.
+    """
+    users = db.query(User).order_by(User.id.asc()).all()
+    return [
+        {
+            "id": u.id,
+            "username": u.username,
+            "email": u.email,
+            "full_name": u.full_name,
+            "role": u.role,
+            "badge_number": u.badge_number,
+            "department": u.department,
+            "created_at": u.created_at.isoformat() if u.created_at else None
+        }
+        for u in users
+    ]
+
+
+@router.post("/users")
+def create_or_update_user(req: UserCreateOrUpdateRequest, db: Session = Depends(get_db)):
+    """
+    Admin endpoint to create or update authorized personnel records.
+    """
+    clean_username = req.username.strip().lower()
+    clean_name = req.full_name.strip()
+    clean_role = req.role.strip().lower()
+    clean_email = (req.email or f"{clean_username}@doca.gov.in").strip().lower()
+    badge = req.badge_number or f"DOCA-{clean_role.upper()}-2026"
+    dept = req.department or "Legal Metrology Enforcement Directorate"
+
+    if req.id:
+        user = db.query(User).filter(User.id == req.id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.username = clean_username
+        user.email = clean_email
+        user.full_name = clean_name
+        user.role = clean_role
+        user.badge_number = badge
+        user.department = dept
+        if req.password:
+            user.hashed_password = get_password_hash(req.password)
+        db.commit()
+        db.refresh(user)
+        return {"message": f"Officer {user.full_name} updated successfully", "user_id": user.id}
+    else:
+        existing = db.query(User).filter((User.username == clean_username) | (User.email == clean_email)).first()
+        if existing:
+            # Update existing
+            existing.full_name = clean_name
+            existing.role = clean_role
+            existing.badge_number = badge
+            existing.department = dept
+            if req.password:
+                existing.hashed_password = get_password_hash(req.password)
+            db.commit()
+            db.refresh(existing)
+            return {"message": f"Officer {existing.full_name} updated successfully", "user_id": existing.id}
+
+        new_user = User(
+            username=clean_username,
+            email=clean_email,
+            hashed_password=get_password_hash(req.password or "password123"),
+            full_name=clean_name,
+            role=clean_role,
+            badge_number=badge,
+            department=dept
+        )
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        return {"message": f"Officer {new_user.full_name} registered successfully", "user_id": new_user.id}
+
+
+@router.delete("/users/{user_id}")
+def delete_user(user_id: int, db: Session = Depends(get_db)):
+    """
+    Removes user from database with safeguard for core admin.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.username == "admin":
+        raise HTTPException(status_code=400, detail="Cannot delete root system administrator")
+    
+    db.delete(user)
+    db.commit()
+    return {"message": f"User {user.username} deleted successfully"}
+
+

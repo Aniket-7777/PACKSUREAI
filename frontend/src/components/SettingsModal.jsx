@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth, JURISDICTIONS } from '../context/AuthContext';
 import { 
   X, 
@@ -20,7 +20,9 @@ import {
   Cpu, 
   RotateCcw,
   Building2,
-  Lock
+  Lock,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 export const SettingsModal = () => {
@@ -39,6 +41,7 @@ export const SettingsModal = () => {
 
   // Settings states persisted in localStorage
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
+  const [showApiKey, setShowApiKey] = useState(false);
   const [aiConfidenceThreshold, setAiConfidenceThreshold] = useState(() => Number(localStorage.getItem('app_ai_threshold') || '75'));
   const [enableSoundAlerts, setEnableSoundAlerts] = useState(() => localStorage.getItem('app_sound_alerts') !== 'false');
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(() => localStorage.getItem('app_auto_refresh') || '30');
@@ -273,13 +276,23 @@ export const SettingsModal = () => {
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
                     Google Gemini 2.0 Vision API Key
                   </label>
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="AIzaSy..."
-                    className="w-full px-3 py-2 bg-white dark:bg-slate-950 border border-sky-300 dark:border-slate-800 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showApiKey ? 'text' : 'password'}
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder="AIzaSy..."
+                      className="w-full px-3 py-2 pr-9 bg-white dark:bg-slate-950 border border-sky-300 dark:border-slate-800 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      title={showApiKey ? "Hide API Key" : "Show API Key"}
+                    >
+                      {showApiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                   <p className="text-[11px] text-slate-500 flex items-center gap-1 mt-1">
                     <span>Generate free Gemini keys from</span>
                     <a

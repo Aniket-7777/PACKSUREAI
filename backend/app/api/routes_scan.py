@@ -9,7 +9,7 @@ from app.core.security import get_current_user_payload
 from app.models.entities import Scan, ExtractedField, Violation, Inspection, AuditLog, User
 from app.services.image_conversion import normalize_image_to_rgb_jpeg
 from app.services.image_quality import check_image_quality
-from app.services.barcode_service import lookup_barcode
+from app.services.barcode_service import lookup_barcode, decode_barcode_from_image_bytes
 from app.services.ocr_service import extract_declarations_from_images
 from app.services.rule_engine import evaluate_compliance
 from app.services.risk_engine import calculate_priority_risk_index
@@ -382,6 +382,17 @@ def api_lookup_barcode(barcode: str):
         "barcode": barcode,
         "data": res
     }
+
+
+@router.post("/decode-barcode-image")
+async def api_decode_barcode_image(image: UploadFile = File(...)):
+    """
+    Decodes 1D/2D barcodes directly from an uploaded packaging photo or webcam frame capture
+    using server-side computer vision filters (CLAHE, multi-angle rotations, center-crop).
+    """
+    raw_bytes = await image.read()
+    res = decode_barcode_from_image_bytes(raw_bytes)
+    return res
 
 
 @router.get("/{scan_id}")

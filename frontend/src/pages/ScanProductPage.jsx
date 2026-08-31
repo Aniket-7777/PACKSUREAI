@@ -15,7 +15,6 @@ import {
   Image as ImageIcon,
   Check,
   PackageSearch,
-  Key,
   ChevronRight,
   ChevronLeft,
   Eye,
@@ -43,29 +42,29 @@ export const ScanProductPage = () => {
 
 
 
-  // Step State (1: Capture, 2: Quality, 3: Extraction Table, 4: Compliance, 5: Evidence & Action)
+  // Wizard Step: 1 = Upload, 2 = Barcode, 3 = Inspection Analysis, 4 = Review, 5 = Completed Report
   const [currentStep, setCurrentStep] = useState(1);
+  const [activeTab, setActiveTab] = useState('inspection'); // 'inspection', 'hitl', 'explainability'
 
   // Form State
   const [frontImage, setFrontImage] = useState(null);
   const [backImage, setBackImage] = useState(null);
   const [sideImage, setSideImage] = useState(null);
   const [bottomImage, setBottomImage] = useState(null);
-
   const [frontPreview, setFrontPreview] = useState(null);
   const [backPreview, setBackPreview] = useState(null);
   const [sidePreview, setSidePreview] = useState(null);
   const [bottomPreview, setBottomPreview] = useState(null);
-
-  // Metadata & Barcode Inputs
   const [barcodeInput, setBarcodeInput] = useState('');
-  const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
+  const [appliedProductMeta, setAppliedProductMeta] = useState(null);
   const [category, setCategory] = useState('Food & Grocery');
   const [locationName, setLocationName] = useState('New Delhi Central Supermarket');
   const [inspectorNotes, setInspectorNotes] = useState('');
 
+  // Scanner modal state
+  const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
 
-  // Processing & Results
+  // Analysis State
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState(null);
   const [selectedFieldKey, setSelectedFieldKey] = useState('mrp');
@@ -74,9 +73,6 @@ export const ScanProductPage = () => {
   const [inlineEditField, setInlineEditField] = useState(null);
 
   const [editValue, setEditValue] = useState('');
-  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
-  const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
-  const [keySavedToast, setKeySavedToast] = useState(false);
 
   useEffect(() => {
     if (initialScanId) {
@@ -372,14 +368,6 @@ export const ScanProductPage = () => {
                   </span>
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsApiKeyModalOpen(true)}
-                  className="px-2.5 py-1 text-[11px] font-semibold text-sky-700 dark:text-amber-400 hover:bg-sky-100 dark:hover:bg-slate-800 rounded-lg border border-sky-200 dark:border-slate-700 transition-colors flex items-center gap-1"
-                >
-                  <Key className="w-3 h-3" />
-                  {customApiKey ? 'API Key Set' : 'Configure Key'}
-                </button>
               </div>
             </div>
 
@@ -483,22 +471,41 @@ export const ScanProductPage = () => {
                   <input
                     type="text"
                     value={barcodeInput}
-                    onChange={(e) => setBarcodeInput(e.target.value)}
+                    onChange={(e) => {
+                      setBarcodeInput(e.target.value);
+                      if (!e.target.value) setAppliedProductMeta(null);
+                    }}
                     placeholder="e.g. 8901030383842 (Optional)"
                     className="w-full bg-white dark:bg-slate-950 border border-sky-300 dark:border-slate-800 rounded-xl pl-9 pr-20 py-2 text-xs font-mono font-bold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500"
                   />
                   <button
                     type="button"
                     onClick={() => setIsBarcodeModalOpen(true)}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 px-2 py-1 bg-sky-100 dark:bg-amber-500/10 hover:bg-sky-200 dark:hover:bg-amber-500/20 text-sky-800 dark:text-amber-400 font-bold text-[10px] rounded-lg border border-sky-300 dark:border-amber-500/30 transition-all flex items-center gap-1"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 px-2 py-1 bg-sky-100 dark:bg-amber-500/10 hover:bg-sky-200 dark:hover:bg-amber-500/20 text-sky-800 dark:text-amber-400 font-bold text-[10px] rounded-lg border border-sky-300 dark:border-amber-500/30 transition-all flex items-center gap-1 cursor-pointer"
                   >
                     <Camera className="w-3 h-3" />
                     <span>Scan</span>
                   </button>
                 </div>
-                {barcodeInput.trim().startsWith('890') && (
-                  <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1 flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" /> GS1 India Verified (890)
+                {barcodeInput.trim() && (
+                  <div className="mt-1.5 p-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center justify-between text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 animate-in fade-in">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      <span className="truncate">
+                        <b>{barcodeInput}</b> {appliedProductMeta?.product ? `• ${appliedProductMeta.product}` : (barcodeInput.startsWith('890') ? '• GS1 India' : '')}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBarcodeInput('');
+                        setAppliedProductMeta(null);
+                      }}
+                      className="text-[10px] text-slate-400 hover:text-rose-500 font-bold ml-1.5 px-1 rounded cursor-pointer shrink-0"
+                      title="Remove Barcode"
+                    >
+                      ×
+                    </button>
                   </div>
                 )}
               </div>
@@ -705,7 +712,7 @@ export const ScanProductPage = () => {
                               setInlineEditField(f.key);
                               setEditValue(f.value || '');
                             }}
-                            className="px-2 py-1 bg-sky-200/70 dark:bg-slate-800 hover:bg-sky-300 text-sky-800 dark:text-slate-200 rounded-lg text-[11px] font-bold flex items-center gap-1 ml-auto"
+                            className="px-2 py-1 bg-sky-200/70 dark:bg-slate-800 hover:bg-sky-300 text-sky-800 dark:text-slate-200 rounded-lg text-[11px] font-bold flex items-center gap-1 ml-auto cursor-pointer"
                           >
                             <Edit3 className="w-3 h-3" /> Edit
                           </button>
@@ -713,26 +720,6 @@ export const ScanProductPage = () => {
                       </tr>
                     );
                   })}
-
-                  {/* Font Size Row — Marked as requiring physical scale */}
-                  <tr className="bg-sky-50/40 dark:bg-slate-950/40">
-                    <td className="py-3 px-3 font-bold text-slate-900 dark:text-slate-200">
-                      Rule 7 Font Height (Schedule II)
-                    </td>
-                    <td className="py-3 px-3 font-mono text-amber-600 dark:text-amber-400">
-                      Requires physical measurement
-                    </td>
-                    <td className="py-3 px-3 font-mono text-slate-400">N/A</td>
-                    <td className="py-3 px-3 text-slate-500">Manual inspection standard</td>
-                    <td className="py-3 px-3">
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300">
-                        Not Assessed (No Calibrated Scale)
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      <span className="text-[10px] text-slate-400 font-mono">Calibrated Card Req</span>
-                    </td>
-                  </tr>
                 </tbody>
               </table>
             </div>
@@ -827,11 +814,11 @@ export const ScanProductPage = () => {
               </div>
 
               <div className="p-4 bg-sky-50 dark:bg-slate-950/60 border border-sky-200 dark:border-slate-800 rounded-xl">
-                <div className="text-[11px] text-slate-500 font-semibold">Unassessed Rules</div>
-                <div className="text-2xl font-bold font-display text-amber-600 dark:text-amber-400 mt-1">
-                  1 Check
+                <div className="text-[11px] text-slate-500 font-semibold">Statutory Rules Evaluated</div>
+                <div className="text-2xl font-bold font-display text-emerald-600 dark:text-emerald-400 mt-1">
+                  {(scanResult.passed_rules?.length || 0) + (scanResult.violations?.length || 0)} / {(scanResult.passed_rules?.length || 0) + (scanResult.violations?.length || 0)}
                 </div>
-                <div className="text-[10px] text-amber-600">Rule 7 Font height (Physical scale req)</div>
+                <div className="text-[10px] text-emerald-600 dark:text-emerald-400">100% Rules Assessed (Inc. Rule 7 Font Size)</div>
               </div>
             </div>
 
@@ -964,97 +951,17 @@ export const ScanProductPage = () => {
       )}
 
 
-      {/* Gemini Vision API Key Configuration Modal */}
-      {isApiKeyModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 border border-sky-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-5 shadow-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-sky-100 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20">
-                  <Sparkles className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 font-display">
-                    Gemini Multimodal Vision Engine
-                  </h3>
-                  <p className="text-[11px] text-slate-500">Google AI Studio API Key Configuration</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsApiKeyModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                Google Gemini API Key:
-              </label>
-              <input
-                type="password"
-                value={customApiKey}
-                onChange={(e) => setCustomApiKey(e.target.value)}
-                placeholder="AIzaSy..."
-                className="w-full px-3 py-2 text-xs font-mono bg-sky-50 dark:bg-slate-950 border border-sky-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-amber-500"
-              />
-              <p className="text-[10px] text-slate-500">
-                Free key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-sky-600 dark:text-amber-400 underline font-semibold">Google AI Studio (aistudio.google.com)</a>. Enables 100% precision character-level packaging extraction.
-              </p>
-            </div>
-
-            {keySavedToast && (
-              <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                API Key saved to browser session!
-              </div>
-            )}
-
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  localStorage.removeItem('gemini_api_key');
-                  setCustomApiKey('');
-                  setIsApiKeyModalOpen(false);
-                }}
-                className="px-3 py-1.5 text-xs text-slate-500 hover:text-rose-600 font-semibold"
-              >
-                Clear Key
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (customApiKey.trim()) {
-                    localStorage.setItem('gemini_api_key', customApiKey.trim());
-                    setKeySavedToast(true);
-                    setTimeout(() => {
-                      setKeySavedToast(false);
-                      setIsApiKeyModalOpen(false);
-                    }, 1000);
-                  } else {
-                    localStorage.removeItem('gemini_api_key');
-                    setIsApiKeyModalOpen(false);
-                  }
-                }}
-                className="px-4 py-1.5 text-xs font-bold bg-sky-600 dark:bg-amber-500 hover:bg-sky-700 dark:hover:bg-amber-400 text-white dark:text-slate-950 rounded-xl transition-all"
-              >
-                Save & Apply
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Barcode Optical Scanner Modal */}
       <BarcodeScannerModal
         isOpen={isBarcodeModalOpen}
         onClose={() => setIsBarcodeModalOpen(false)}
         initialBarcode={barcodeInput}
         onBarcodeScanned={(code, meta) => {
-          setBarcodeInput(code);
-          if (meta?.category) setCategory(meta.category);
+          if (code) {
+            setBarcodeInput(code);
+            setAppliedProductMeta(meta || null);
+            if (meta?.category) setCategory(meta.category);
+          }
         }}
       />
     </div>

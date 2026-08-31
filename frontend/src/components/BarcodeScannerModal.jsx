@@ -14,7 +14,8 @@ import {
   AlertCircle,
   ExternalLink,
   ShieldCheck,
-  Package
+  Package,
+  Scan
 } from 'lucide-react';
 import { BrowserMultiFormatReader, BarcodeFormat, DecodeHintType } from '@zxing/library';
 
@@ -38,16 +39,21 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupResult, setLookupResult] = useState(null);
   const [torchOn, setTorchOn] = useState(false);
-  const [isDecoding, setIsDecoding] = useState(false);
+  const [scanSuccessAnim, setScanSuccessAnim] = useState(false);
+  const [serverDecoding, setServerDecoding] = useState(false);
 
   const videoRef = useRef(null);
-  const codeReaderRef = useRef(null);
+  const canvasRef = useRef(null);
+  const zxingReaderRef = useRef(null);
   const streamRef = useRef(null);
-  const scanIntervalRef = useRef(null);
+  const scanTimerRef = useRef(null);
+  const nativeDetectorRef = useRef(null);
+  const lastScannedCodeRef = useRef('');
 
   useEffect(() => {
     setBarcodeInput(initialBarcode);
     setLookupResult(null);
+    lastScannedCodeRef.current = '';
     if (initialBarcode && isOpen) {
       fetchBarcodeDetails(initialBarcode);
     }
@@ -56,38 +62,40 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
   // Handle Camera Lifecycle
   useEffect(() => {
     if (isOpen && activeTab === 'camera') {
-      startZXingScanner();
+      initCameraAndScanners();
     } else {
-      stopScanner();
+      stopCameraAndScanners();
     }
-    return () => stopScanner();
+    return () => stopCameraAndScanners();
   }, [isOpen, activeTab, facingMode]);
 
   // Synthesize Audio Beep
   const playBeep = () => {
     if (!soundEnabled) return;
     try {
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const audioCtx = new AudioCtx();
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.type = 'sine';
       osc.frequency.setValueAtTime(1400, audioCtx.currentTime);
-      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1800, audioCtx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.35, audioCtx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
       osc.connect(gain);
       gain.connect(audioCtx.destination);
       osc.start();
       osc.stop(audioCtx.currentTime + 0.15);
-    } catch (e) {
-      // AudioContext might be blocked before user gesture
-    }
+    } catch (e) {}
   };
 
-  const startZXingScanner = async () => {
+  const initCameraAndScanners = async () => {
     setCameraError('');
     setCameraActive(false);
-    stopScanner();
+    stopCameraAndScanners();
 
+    // 1. Initialize ZXing reader
     try {
       const hints = new Map();
       hints.set(DecodeHintType.POSSIBLE_FORMATS, [
@@ -100,99 +108,198 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
         BarcodeFormat.QR_CODE
       ]);
       hints.set(DecodeHintType.TRY_HARDER, true);
-
-      const codeReader = new BrowserMultiFormatReader(hints, 300);
-      codeReaderRef.current = codeReader;
-
-      const constraints = {
-        video: {
-          facingMode: { ideal: facingMode },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        }
-      };
-
-      if (videoRef.current) {
-        setIsDecoding(true);
-        codeReader.decodeFromConstraints(constraints, videoRef.current, (result, err) => {
-          if (result) {
-            const scannedText = result.getText();
-            if (scannedText && scannedText.trim()) {
-              handleSuccessfulScan(scannedText.trim());
-            }
-          }
-        }).then(() => {
-          setCameraActive(true);
-          // Grab stream for torch support
-          if (videoRef.current && videoRef.current.srcObject) {
-            streamRef.current = videoRef.current.srcObject;
-          }
-        }).catch((err) => {
-          console.warn('ZXing Camera Access Failed, fallback to native getUserMedia:', err);
-          startNativeFallback();
-        });
-      }
-    } catch (err) {
-      console.warn('Camera initialization error:', err);
-      startNativeFallback();
-    }
-  };
-
-  const startNativeFallback = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: facingMode } }
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-        setCameraActive(true);
-        startNativeBarcodeLoop();
-      }
+      zxingReaderRef.current = new BrowserMultiFormatReader(hints, 100);
     } catch (e) {
-      setCameraError('Camera access unavailable or permission denied. You can manually enter or select a test barcode below.');
-      setCameraActive(false);
+      console.warn('ZXing initialization warning:', e);
     }
-  };
 
-  const startNativeBarcodeLoop = () => {
+    // 2. Initialize Native BarcodeDetector if available
     if ('BarcodeDetector' in window) {
       try {
-        const barcodeDetector = new window.BarcodeDetector({
-          formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'qr_code']
+        nativeDetectorRef.current = new window.BarcodeDetector({
+          formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code']
         });
-        scanIntervalRef.current = setInterval(async () => {
-          if (videoRef.current && videoRef.current.readyState === 4) {
-            try {
-              const barcodes = await barcodeDetector.detect(videoRef.current);
-              if (barcodes && barcodes.length > 0) {
-                handleSuccessfulScan(barcodes[0].rawValue);
-              }
-            } catch (err) {}
-          }
-        }, 300);
-      } catch (e) {}
+      } catch (e) {
+        nativeDetectorRef.current = null;
+      }
+    }
+
+    // 3. Request User Media with best constraints
+    const constraintsList = [
+      {
+        video: {
+          facingMode: { ideal: facingMode },
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 },
+          focusMode: { ideal: 'continuous' }
+        }
+      },
+      {
+        video: {
+          facingMode: { ideal: facingMode },
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 }
+        }
+      },
+      {
+        video: true
+      }
+    ];
+
+    let stream = null;
+    for (const constraint of constraintsList) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraint);
+        if (stream) break;
+      } catch (err) {}
+    }
+
+    if (!stream) {
+      setCameraError('Camera access unavailable. Please grant camera permissions or use manual entry/upload.');
+      setCameraActive(false);
+      return;
+    }
+
+    streamRef.current = stream;
+
+    // Apply continuous autofocus if hardware supported
+    try {
+      const track = stream.getVideoTracks()[0];
+      if (track && track.getCapabilities) {
+        const capabilities = track.getCapabilities();
+        if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
+          await track.applyConstraints({
+            advanced: [{ focusMode: 'continuous' }]
+          });
+        }
+      }
+    } catch (e) {}
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.setAttribute('playsinline', 'true');
+      
+      try {
+        await videoRef.current.play();
+        setCameraActive(true);
+        startContinuousScanLoop();
+      } catch (playErr) {
+        console.warn('Video play error:', playErr);
+        setCameraActive(true);
+        startContinuousScanLoop();
+      }
     }
   };
 
-  const stopScanner = () => {
-    if (codeReaderRef.current) {
-      try {
-        codeReaderRef.current.reset();
-      } catch (e) {}
-      codeReaderRef.current = null;
+  const startContinuousScanLoop = () => {
+    if (scanTimerRef.current) {
+      clearInterval(scanTimerRef.current);
     }
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current);
-      scanIntervalRef.current = null;
+
+    if (!canvasRef.current) {
+      canvasRef.current = document.createElement('canvas');
+    }
+
+    let isScanningFrame = false;
+
+    scanTimerRef.current = setInterval(async () => {
+      const video = videoRef.current;
+      if (!video || video.readyState < 2 || isScanningFrame) return;
+
+      isScanningFrame = true;
+
+      try {
+        // ── TRACK 1: Native Hardware Accelerated BarcodeDetector ──
+        if (nativeDetectorRef.current) {
+          try {
+            const detected = await nativeDetectorRef.current.detect(video);
+            if (detected && detected.length > 0) {
+              const code = detected[0].rawValue;
+              if (code && code.trim() && code !== lastScannedCodeRef.current) {
+                lastScannedCodeRef.current = code.trim();
+                handleSuccessfulScan(code.trim());
+                isScanningFrame = false;
+                return;
+              }
+            }
+          } catch (e) {}
+        }
+
+        // ── TRACK 2: Preprocessed Canvas + ZXing Multi-Format Reader ──
+        const canvas = canvasRef.current;
+        if (canvas && zxingReaderRef.current && video.videoWidth > 0) {
+          const vw = video.videoWidth;
+          const vh = video.videoHeight;
+
+          // 2A: Zoomed Center Region of Interest (ROI)
+          const roiW = Math.floor(vw * 0.75);
+          const roiH = Math.floor(vh * 0.40);
+          const roiX = Math.floor((vw - roiW) / 2);
+          const roiY = Math.floor((vh - roiH) / 2);
+
+          canvas.width = roiW;
+          canvas.height = roiH;
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          
+          if (ctx) {
+            ctx.drawImage(video, roiX, roiY, roiW, roiH, 0, 0, roiW, roiH);
+
+            // Contrast enhancement filter for 1D barcodes
+            try {
+              const imgData = ctx.getImageData(0, 0, roiW, roiH);
+              const d = imgData.data;
+              for (let i = 0; i < d.length; i += 4) {
+                const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+                const contrast = (gray - 128) * 1.5 + 128;
+                const clamped = contrast < 0 ? 0 : contrast > 255 ? 255 : contrast;
+                d[i] = clamped;
+                d[i + 1] = clamped;
+                d[i + 2] = clamped;
+              }
+              ctx.putImageData(imgData, 0, 0);
+            } catch (e) {}
+
+            try {
+              const zxResult = await zxingReaderRef.current.decodeFromCanvas(canvas);
+              if (zxResult && zxResult.getText()) {
+                const code = zxResult.getText().trim();
+                if (code && code !== lastScannedCodeRef.current) {
+                  lastScannedCodeRef.current = code;
+                  handleSuccessfulScan(code);
+                  isScanningFrame = false;
+                  return;
+                }
+              }
+            } catch (zxErr) {}
+          }
+        }
+      } catch (frameErr) {
+      } finally {
+        isScanningFrame = false;
+      }
+    }, 90);
+  };
+
+  const stopCameraAndScanners = () => {
+    if (scanTimerRef.current) {
+      clearInterval(scanTimerRef.current);
+      scanTimerRef.current = null;
+    }
+    if (zxingReaderRef.current) {
+      try {
+        zxingReaderRef.current.reset();
+      } catch (e) {}
     }
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current.getTracks().forEach(track => {
+        try {
+          track.stop();
+        } catch (e) {}
+      });
       streamRef.current = null;
     }
     setCameraActive(false);
-    setIsDecoding(false);
+    setTorchOn(false);
   };
 
   const toggleTorch = () => {
@@ -202,79 +309,156 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
         const nextState = !torchOn;
         track.applyConstraints({ advanced: [{ torch: nextState }] })
           .then(() => setTorchOn(nextState))
-          .catch(e => console.warn('Torch not supported:', e));
+          .catch(e => console.warn('Torch constraint error:', e));
       }
     }
   };
 
   const handleSuccessfulScan = async (code) => {
+    if (!code) return;
+    const cleanCode = String(code).trim();
     playBeep();
-    setBarcodeInput(code);
-    stopScanner();
-    await fetchBarcodeDetails(code);
+    setScanSuccessAnim(true);
+    setBarcodeInput(cleanCode);
+    
+    stopCameraAndScanners();
+    
+    setTimeout(() => {
+      setScanSuccessAnim(false);
+    }, 1500);
+
+    const meta = await fetchBarcodeDetails(cleanCode);
+    return meta;
+  };
+
+  const handleCaptureAndDecodeServer = async () => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) return;
+
+    setServerDecoding(true);
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.95));
+      if (!blob) {
+        setServerDecoding(false);
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('image', blob, 'frame_snapshot.jpg');
+
+      const res = await fetch('/api/v1/scans/decode-barcode-image', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.barcode) {
+          await handleSuccessfulScan(data.barcode);
+          if (data.data) {
+            setLookupResult(data.data);
+          }
+          setServerDecoding(false);
+          return;
+        }
+      }
+      alert('No barcode detected in current frame. Please hold barcode inside the center reticle.');
+    } catch (e) {
+      console.warn('Server snapshot barcode decode failed:', e);
+      alert('Could not decode snapshot. Position barcode inside green target frame.');
+    } finally {
+      setServerDecoding(false);
+    }
   };
 
   const fetchBarcodeDetails = async (code) => {
-    if (!code) return;
+    if (!code) return null;
     setLookupLoading(true);
     setLookupResult(null);
     try {
       const res = await fetch(`/api/v1/scans/lookup-barcode/${encodeURIComponent(code)}`);
       if (res.ok) {
         const data = await res.json();
-        setLookupResult(data.data || null);
+        const meta = data.data || null;
+        setLookupResult(meta);
+        return meta;
       }
     } catch (e) {
       console.warn('Barcode registry fetch failed:', e);
     } finally {
       setLookupLoading(false);
     }
+    return null;
   };
 
-  const handleApplyBarcode = () => {
-    if (onBarcodeScanned) {
-      onBarcodeScanned(barcodeInput.trim(), lookupResult);
+  const handleApplyBarcode = (explicitCode, explicitMeta) => {
+    const codeToApply = (explicitCode || barcodeInput || '').trim();
+    const metaToApply = explicitMeta || lookupResult || null;
+    if (codeToApply && onBarcodeScanned) {
+      onBarcodeScanned(codeToApply, metaToApply);
     }
     onClose();
   };
 
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = async (event) => {
+    setServerDecoding(true);
+
+    // 1. Client-side native BarcodeDetector
+    if ('BarcodeDetector' in window) {
       try {
-        const codeReader = new BrowserMultiFormatReader();
         const img = new Image();
-        img.onload = async () => {
-          try {
-            const result = await codeReader.decodeFromImageElement(img);
-            if (result && result.getText()) {
-              handleSuccessfulScan(result.getText().trim());
-              return;
-            }
-          } catch (zxingErr) {
-            // If ZXing didn't catch, try native BarcodeDetector if available
-            if ('BarcodeDetector' in window) {
-              try {
-                const detector = new window.BarcodeDetector({ formats: ['ean_13', 'upc_a', 'code_128', 'qr_code'] });
-                const detected = await detector.detect(img);
-                if (detected && detected.length > 0) {
-                  handleSuccessfulScan(detected[0].rawValue);
-                  return;
-                }
-              } catch (err) {}
-            }
-            alert('Could not decode a clear barcode in this photo. Please enter the EAN number manually or choose a preset.');
+        const objectUrl = URL.createObjectURL(file);
+        img.src = objectUrl;
+        await img.decode();
+        const detector = new window.BarcodeDetector({
+          formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'qr_code']
+        });
+        const detected = await detector.detect(img);
+        URL.revokeObjectURL(objectUrl);
+        if (detected && detected.length > 0) {
+          setServerDecoding(false);
+          handleSuccessfulScan(detected[0].rawValue.trim());
+          return;
+        }
+      } catch (err) {}
+    }
+
+    // 2. Server-side OpenCV multi-pass decoding
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+
+      const res = await fetch('/api/v1/scans/decode-barcode-image', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.barcode) {
+          handleSuccessfulScan(data.barcode);
+          if (data.data) {
+            setLookupResult(data.data);
           }
-        };
-        img.src = event.target.result;
-      } catch (err) {
-        console.warn('Upload decode error:', err);
+          setServerDecoding(false);
+          return;
+        }
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.warn('Server optical file decode error:', err);
+    }
+
+    setServerDecoding(false);
+    alert('Could not decode a clear barcode from this image. Please select a preset or enter the EAN number.');
   };
 
 
@@ -292,13 +476,14 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
             </div>
             <div>
               <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <span>GS1 / EAN-13 Barcode Scanner</span>
-                <span className="text-[9px] font-extrabold bg-sky-100 dark:bg-amber-500/10 text-sky-800 dark:text-amber-400 border border-sky-200 dark:border-amber-500/30 px-1.5 py-0.2 rounded font-mono">
-                  Optical HUD
+                <span>GS1 / EAN-13 Live Barcode Scanner</span>
+                <span className="text-[9px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-1.5 py-0.2 rounded font-mono flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Multi-Engine HUD
                 </span>
               </h3>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Scan commodity packaging barcode or enter 13-digit EAN code
+                Align barcode in viewfinder for automatic instant detection
               </p>
             </div>
           </div>
@@ -322,7 +507,7 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
             }`}
           >
             <Camera className="w-3.5 h-3.5" />
-            <span>Live Camera Scanner</span>
+            <span>Live Camera</span>
           </button>
 
           <button
@@ -335,7 +520,7 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
             }`}
           >
             <Barcode className="w-3.5 h-3.5" />
-            <span>Manual & Presets</span>
+            <span>Presets & Manual</span>
           </button>
 
           <button
@@ -358,81 +543,123 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
           {/* TAB 1: LIVE CAMERA VIEW */}
           {activeTab === 'camera' && (
             <div className="space-y-3">
-              <div className="relative aspect-video sm:aspect-[4/3] bg-slate-950 rounded-2xl overflow-hidden border border-sky-200 dark:border-slate-800 flex items-center justify-center">
+              <div className="relative aspect-video sm:aspect-[4/3] bg-slate-950 rounded-2xl overflow-hidden border border-sky-200 dark:border-slate-800 flex items-center justify-center shadow-inner">
                 
                 {/* Video Viewport */}
                 <video
                   ref={videoRef}
                   className="w-full h-full object-cover"
                   playsInline
+                  autoPlay
                   muted
                 />
 
+                {/* Scanning Success Flash */}
+                {scanSuccessAnim && (
+                  <div className="absolute inset-0 bg-emerald-500/30 backdrop-blur-xs flex items-center justify-center z-20 animate-in fade-in zoom-in-95">
+                    <div className="bg-slate-950/90 text-emerald-400 px-4 py-2 rounded-2xl border border-emerald-400/50 shadow-2xl flex items-center gap-2 font-bold text-xs font-mono">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-400 animate-bounce" />
+                      <span>BARCODE LOCKED: {barcodeInput}</span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Laser Scanning Overlay HUD */}
-                {cameraActive && (
+                {cameraActive && !scanSuccessAnim && (
                   <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                    {/* Viewfinder Reticle */}
-                    <div className="relative w-64 h-36 border-2 border-emerald-400/90 rounded-2xl shadow-[0_0_20px_rgba(52,211,153,0.3)] flex items-center justify-center">
-                      {/* Red Laser Sweep Line */}
-                      <div className="absolute w-full h-0.5 bg-rose-500 shadow-[0_0_8px_#f43f5e] animate-pulse"></div>
-                      <div className="text-[10px] font-mono text-emerald-300 font-bold bg-slate-950/80 px-2 py-0.5 rounded-full absolute -top-3">
-                        ALIGN BARCODE IN FRAME
+                    {/* Viewfinder Target Reticle */}
+                    <div className="relative w-72 h-36 border-2 border-emerald-400/90 rounded-2xl shadow-[0_0_25px_rgba(52,211,153,0.35)] flex items-center justify-center bg-emerald-950/5">
+                      
+                      {/* Animated Laser Sweep Line */}
+                      <div className="absolute w-full h-0.5 bg-gradient-to-r from-transparent via-rose-500 to-transparent shadow-[0_0_12px_#f43f5e] animate-pulse"></div>
+                      
+                      <div className="text-[10px] font-mono text-emerald-300 font-bold bg-slate-950/85 px-2.5 py-0.5 rounded-full border border-emerald-500/30 absolute -top-3.5 flex items-center gap-1.5 shadow-md">
+                        <Scan className="w-3 h-3 text-emerald-400" />
+                        <span>HOLD BARCODE IN CENTER</span>
                       </div>
                       
                       {/* Corner Target Markers */}
-                      <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-emerald-400 rounded-tl"></div>
-                      <div className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-emerald-400 rounded-tr"></div>
-                      <div className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-emerald-400 rounded-bl"></div>
-                      <div className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-emerald-400 rounded-br"></div>
+                      <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-emerald-400 rounded-tl-lg"></div>
+                      <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-emerald-400 rounded-tr-lg"></div>
+                      <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-emerald-400 rounded-bl-lg"></div>
+                      <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-emerald-400 rounded-br-lg"></div>
                     </div>
                   </div>
                 )}
 
                 {/* Fallback / Camera Error state */}
                 {!cameraActive && (
-                  <div className="p-6 text-center space-y-2 text-slate-400">
-                    <Camera className="w-8 h-8 mx-auto text-slate-500" />
-                    <p className="text-xs">{cameraError || 'Initializing Camera Feed...'}</p>
+                  <div className="p-6 text-center space-y-3 text-slate-400 z-10">
+                    <Camera className="w-10 h-10 mx-auto text-slate-500" />
+                    <p className="text-xs max-w-xs mx-auto text-slate-300">
+                      {cameraError || 'Initializing camera stream with continuous auto-focus...'}
+                    </p>
                     <button
                       type="button"
-                      onClick={startZXingScanner}
-                      className="px-3 py-1 bg-sky-600 text-white rounded-xl text-xs font-semibold"
+                      onClick={initCameraAndScanners}
+                      className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5 mx-auto"
                     >
-                      Try Again
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Start / Restart Camera</span>
                     </button>
-
                   </div>
                 )}
 
                 {/* Camera Top Controls Toolbar */}
-                <div className="absolute top-2 right-2 flex items-center gap-1.5 z-10">
-                  <button
-                    type="button"
-                    onClick={() => setSoundEnabled(!soundEnabled)}
-                    className="p-2 rounded-xl bg-slate-900/80 text-white border border-slate-700 hover:bg-slate-800 transition-all text-xs"
-                    title={soundEnabled ? 'Mute Beep' : 'Enable Beep'}
-                  >
-                    {soundEnabled ? <Volume2 className="w-3.5 h-3.5 text-emerald-400" /> : <VolumeX className="w-3.5 h-3.5 text-slate-400" />}
-                  </button>
+                {cameraActive && (
+                  <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
+                    <button
+                      type="button"
+                      onClick={() => setSoundEnabled(!soundEnabled)}
+                      className="p-2 rounded-xl bg-slate-900/80 text-white border border-slate-700 hover:bg-slate-800 transition-all text-xs shadow-md"
+                      title={soundEnabled ? 'Mute Beep' : 'Enable Beep'}
+                    >
+                      {soundEnabled ? <Volume2 className="w-3.5 h-3.5 text-emerald-400" /> : <VolumeX className="w-3.5 h-3.5 text-slate-400" />}
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setFacingMode(prev => prev === 'environment' ? 'user' : 'environment')}
-                    className="p-2 rounded-xl bg-slate-900/80 text-white border border-slate-700 hover:bg-slate-800 transition-all text-xs"
-                    title="Flip Camera"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => setFacingMode(prev => prev === 'environment' ? 'user' : 'environment')}
+                      className="p-2 rounded-xl bg-slate-900/80 text-white border border-slate-700 hover:bg-slate-800 transition-all text-xs shadow-md"
+                      title="Switch Camera (Front/Rear)"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={toggleTorch}
-                    className="p-2 rounded-xl bg-slate-900/80 text-white border border-slate-700 hover:bg-slate-800 transition-all text-xs"
-                    title="Toggle Flashlight"
-                  >
-                    <Zap className={`w-3.5 h-3.5 ${torchOn ? 'text-amber-400' : 'text-slate-400'}`} />
-                  </button>
-                </div>
+                    <button
+                      type="button"
+                      onClick={toggleTorch}
+                      className="p-2 rounded-xl bg-slate-900/80 text-white border border-slate-700 hover:bg-slate-800 transition-all text-xs shadow-md"
+                      title="Toggle Flashlight / Torch"
+                    >
+                      <Zap className={`w-3.5 h-3.5 ${torchOn ? 'text-amber-400' : 'text-slate-400'}`} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Instant Snapshot Helper in Camera View */}
+                {cameraActive && (
+                  <div className="absolute bottom-3 inset-x-3 flex justify-center z-10">
+                    <button
+                      type="button"
+                      onClick={handleCaptureAndDecodeServer}
+                      disabled={serverDecoding}
+                      className="px-4 py-1.5 rounded-xl bg-slate-900/85 hover:bg-slate-800 text-white border border-sky-400/40 text-xs font-semibold flex items-center gap-1.5 shadow-lg backdrop-blur-xs transition-all disabled:opacity-50"
+                    >
+                      {serverDecoding ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                          <span>Processing Optical Frame...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Tap for Instant Frame Capture</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -443,7 +670,7 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
               <label className="border-2 border-dashed border-sky-300 dark:border-slate-700 hover:border-sky-500 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer bg-sky-50/50 dark:bg-slate-950/40 transition-all text-center">
                 <Upload className="w-8 h-8 text-sky-600 dark:text-amber-400" />
                 <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                  Upload Package Photo Containing Barcode
+                  {serverDecoding ? 'Running Server Optical Decoder...' : 'Upload Package Photo Containing Barcode'}
                 </div>
                 <div className="text-[11px] text-slate-500">
                   Supports JPEG, PNG, WebP, AVIF, HEIC packaging snapshots
@@ -461,7 +688,7 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
           {/* SHARED INPUT: Manual Input & Registry Status */}
           <div className="space-y-2 pt-2 border-t border-sky-100 dark:border-slate-800">
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-              Scanned / Entered Barcode Number <span className="text-[10px] font-normal text-slate-500">(Optional)</span>
+              Scanned / Entered Barcode Number <span className="text-[10px] font-normal text-slate-500">(EAN-13, UPC, Code-128)</span>
             </label>
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
@@ -481,7 +708,7 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
                 type="button"
                 onClick={() => fetchBarcodeDetails(barcodeInput.trim())}
                 disabled={lookupLoading || !barcodeInput.trim()}
-                className="py-2 px-3 bg-sky-100 hover:bg-sky-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-sky-300 dark:border-slate-700 text-sky-800 dark:text-amber-400 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shrink-0"
+                className="py-2 px-3 bg-sky-100 hover:bg-sky-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-sky-300 dark:border-slate-700 text-sky-800 dark:text-amber-400 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shrink-0 cursor-pointer disabled:opacity-50"
               >
                 <Search className="w-3.5 h-3.5" />
                 <span>{lookupLoading ? 'Querying...' : 'Verify GS1'}</span>
@@ -507,8 +734,14 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
                 <button
                   key={item.code}
                   type="button"
-                  onClick={() => handleSuccessfulScan(item.code)}
-                  className="p-2 rounded-xl text-left bg-sky-50/50 hover:bg-sky-100 dark:bg-slate-950/60 dark:hover:bg-slate-800 border border-sky-200 dark:border-slate-800 transition-all flex items-center justify-between text-xs group"
+                  onClick={() => {
+                    handleSuccessfulScan(item.code);
+                  }}
+                  className={`p-2 rounded-xl text-left transition-all flex items-center justify-between text-xs group cursor-pointer border ${
+                    barcodeInput === item.code
+                      ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500/50 text-emerald-900 dark:text-emerald-300'
+                      : 'bg-sky-50/50 hover:bg-sky-100 dark:bg-slate-950/60 dark:hover:bg-slate-800 border-sky-200 dark:border-slate-800'
+                  }`}
                 >
                   <div className="overflow-hidden">
                     <div className="font-bold text-[11px] text-slate-900 dark:text-slate-100 truncate group-hover:text-sky-700 dark:group-hover:text-amber-400">
@@ -519,7 +752,7 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
                     </div>
                   </div>
                   <span className="text-[10px] text-sky-600 dark:text-amber-400 font-bold ml-1 shrink-0">
-                    Use →
+                    {barcodeInput === item.code ? 'Selected ✓' : 'Use →'}
                   </span>
                 </button>
               ))}
@@ -555,19 +788,19 @@ export const BarcodeScannerModal = ({ isOpen, onClose, onBarcodeScanned, initial
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
+            className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 cursor-pointer"
           >
             Cancel
           </button>
           
           <button
             type="button"
-            onClick={handleApplyBarcode}
+            onClick={() => handleApplyBarcode(barcodeInput, lookupResult)}
             disabled={!barcodeInput.trim()}
-            className="px-5 py-2 bg-gradient-to-r from-sky-600 to-indigo-600 hover:opacity-95 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-5 py-2 bg-gradient-to-r from-sky-600 to-indigo-600 hover:opacity-95 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             <CheckCircle2 className="w-4 h-4" />
-            <span>Apply Barcode to Audit</span>
+            <span>Apply Barcode to Audit {barcodeInput.trim() ? `(${barcodeInput.trim()})` : ''}</span>
           </button>
         </div>
 

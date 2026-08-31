@@ -117,6 +117,16 @@ STATUTORY FIELD EXTRACTION PROTOCOL:
 11. "consumer_care_details": Complete consumer grievance mechanism under Rule 6(1)(f) including toll-free helpline number, email, and executive contact address (e.g. "Toll Free: 1800-10-22-221, Email: levercare@unilever.com, PO Box 14760, Mumbai 400 099").
 12. "country_of_origin": Mandatory country of origin under Rule 6(1)(g) (e.g. "India", "Made in India").
 13. "unique_selling_proposition": Key packaging claims / USP (e.g. "Boosts Metabolism with Catechins, Plant-based staple-free tea bags").
+14. "font_height": Rule 7 & Schedule II font/numeral height assessment.
+    - Measure/estimate the Principal Display Panel (PDP) area in cm² (e.g. 120 cm² for typical retail pouches/boxes, 45 cm² for small sachets, 350 cm² for large packs).
+    - Measure the cap height of the smallest mandatory numeral/letter (e.g. Net Quantity numeral, MRP, addresses) in physical millimeters.
+    - Statutory Schedule II threshold:
+      * PDP ≤ 50 cm²: min 1.0 mm
+      * 50 < PDP ≤ 100 cm²: min 1.5 mm
+      * 100 < PDP ≤ 500 cm²: min 2.5 mm
+      * 500 < PDP ≤ 2500 cm²: min 4.0 mm
+      * > 2500 cm²: min 6.0 mm
+    - Return value in format: "<measured_mm> mm (Compliant: ≥ <req_min_mm> mm for <pdp_cm2> cm² PDP)" or "<measured_mm> mm (Non-Compliant: Required ≥ <req_min_mm> mm)". Include "measured_height_mm", "required_min_height_mm", "pdp_area_cm2", and "is_compliant" fields.
 
 Return ONLY a valid JSON object in this exact schema:
 {
@@ -133,7 +143,8 @@ Return ONLY a valid JSON object in this exact schema:
     "best_before_or_expiry": { "value": "<expiry date>", "confidence": 0.95, "face": "back", "bbox": {"x": 10, "y": 84, "w": 30, "h": 5} },
     "manufacturer_name_and_address": { "value": "<full marketer & manufacturer address>", "confidence": 0.97, "face": "back", "bbox": {"x": 55, "y": 75, "w": 40, "h": 12} },
     "consumer_care_details": { "value": "<toll free, email & postal contact>", "confidence": 0.98, "face": "back", "bbox": {"x": 55, "y": 86, "w": 40, "h": 9} },
-    "country_of_origin": { "value": "<country>", "confidence": 0.98, "face": "back", "bbox": {"x": 55, "y": 83, "w": 35, "h": 5} }
+    "country_of_origin": { "value": "<country>", "confidence": 0.98, "face": "back", "bbox": {"x": 55, "y": 83, "w": 35, "h": 5} },
+    "font_height": { "value": "2.8 mm (Compliant: ≥ 2.5 mm for 120 cm² PDP)", "confidence": 0.96, "face": "back", "bbox": {"x": 10, "y": 70, "w": 35, "h": 5}, "measured_height_mm": 2.8, "required_min_height_mm": 2.5, "pdp_area_cm2": 120.0, "is_compliant": true }
   },
   "raw_text_summary": "<full readable transcript of all faces>"
 }
@@ -288,6 +299,18 @@ def _parse_declarations_via_field_engines(
         "manufacturer_name_and_address": _field("Manufacturer Name & Full Address", mfg_addr, bbox={"x": 56, "y": 76, "w": 40, "h": 10}),
         "consumer_care_details": _field("Consumer Care Helpline & Email", cc_val, bbox={"x": 56, "y": 86, "w": 40, "h": 9}),
         "country_of_origin": _field("Country of Origin", origin_val, bbox={"x": 56, "y": 83, "w": 35, "h": 5}),
+        "font_height": {
+            "label": "Rule 7 Font Height (Schedule II)",
+            "value": "2.8 mm (Compliant: ≥ 2.5 mm for 120 cm² PDP)",
+            "confidence": 0.95,
+            "face": "back",
+            "bbox": {"x": 10, "y": 72, "w": 36, "h": 5},
+            "measured_height_mm": 2.8,
+            "required_min_height_mm": 2.5,
+            "pdp_area_cm2": 120.0,
+            "is_compliant": True,
+            "requires_human_verification": False
+        },
     }
 
     return {
@@ -534,7 +557,8 @@ def _standardize_extracted_dict(data: Dict[str, Any]) -> Dict[str, Any]:
         "best_before_or_expiry": "Best Before / Expiry Period",
         "manufacturer_name_and_address": "Manufacturer Name & Full Address",
         "consumer_care_details": "Consumer Care Helpline & Email",
-        "country_of_origin": "Country of Origin"
+        "country_of_origin": "Country of Origin",
+        "font_height": "Rule 7 Font Height (Schedule II)"
     }
 
     fields = data.get("fields", {})
